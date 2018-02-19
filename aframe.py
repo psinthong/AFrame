@@ -2,7 +2,10 @@ import pandas as pd
 import urllib.parse
 import urllib.request
 import pandas.io.json as json
+import json as pyJson
 import re
+import decimal
+
 
 class AFrameObj:
     def __init__(self, dataverse, dataset, schema, query=None):
@@ -21,7 +24,7 @@ class AFrameObj:
 
     @property
     def query(self):
-        return self._query
+        return str(self._query)
 
     def collect(self):
         results = AFrame.send_request(self._query)
@@ -29,7 +32,9 @@ class AFrameObj:
             raise KeyError(self._schema)
         self._data = results
         # return pd.Series(self._data)
-        return pd.DataFrame(json.read_json(json.dumps(results)))
+        result = pd.DataFrame(json.read_json(json.dumps(results)))
+        result.set_index('id', inplace=True)
+        return result
 
     def head(self, num=5):
         new_query = self._query[:-1]+' limit %d;' % num
@@ -37,14 +42,17 @@ class AFrameObj:
         if all(i is None for i in results):
             raise KeyError(self._schema)
         # return pd.Series(results)
-        return pd.DataFrame(json.read_json(json.dumps(results)))
+        json_str = json.dumps(results)
+        result = pd.DataFrame(data=json.read_json(json_str))
+        result.set_index('id', inplace=True)
+        return result
 
     def __eq__(self, other):
         if isinstance(self, AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
             old_query = self._query[:-1]
-            new_query = 'with q as(%s)\nselect t1.id, t1.%s=%s %s from q t1;' % \
+            new_query = 'with q as(%s) select t1.id, t1.%s=%s %s from q t1;' % \
                    (old_query, self._schema, str(other), self._schema)
             self._query = new_query
             return AFrameObj(self._dataverse, self._dataset, self._schema, self._query)
@@ -56,7 +64,7 @@ class AFrameObj:
             if isinstance(other, AFrameObj):
                 left_q = self.query[:-1]
                 right_q = other.query[:-1]
-                new_q = 'with q1 as (%s), q2 as(%s)\n select t1.id, t1.%s and t2.%s as result from ' \
+                new_q = 'with q1 as (%s), \n  q2 as(%s)\n select t1.id, t1.%s and t2.%s as result from ' \
                         'q1 t1, q2 t2 where t1.id=t2.id;' \
                         % (left_q, right_q, self.schema, other.schema)
                 return AFrameObj(self._dataverse, self._dataset, 'result', new_q)
@@ -113,10 +121,10 @@ class AFrame:
             dataset = self._dataverse + '.' + self._dataset
             # query = 'select value t.%s from %s t;' % (key, dataset)
             query = 'select t.id, t.%s from %s t;' % (key, dataset)
-            for col in self._columns:
-                if col['name'] == key:
-                    query = 'select value %s from %s;' % (key, dataset)
-                    return AFrameObj(self._dataverse, self._dataset, col, query)
+            # for col in self._columns:
+            #     if col['name'] == key:
+            #         query = 'select %s from %s;' % (key, dataset)
+            #         return AFrameObj(self._dataverse, self._dataset, col, query)
             return AFrameObj(self._dataverse, self._dataset, key, query)
 
     def __len__(self):
@@ -144,10 +152,15 @@ class AFrame:
             raise ValueError('no dataset specified')
         else:
             dataset = self._dataverse+'.'+self._dataset
-            query = 'select value t ' \
-                    'from %s t limit %d;' % (dataset, sample)
+            if sample > 0:
+                query = 'select value t ' \
+                        'from %s t limit %d;' % (dataset, sample)
+            else:
+                query = 'select value t from %s t;' % dataset
             result = self.send_request(query)
-            return pd.DataFrame(json.read_json(json.dumps(result)))
+            result = pd.DataFrame(json.read_json(json.dumps(result)))
+            result.set_index('id', inplace=True)
+            return result
 
     def create(self, path:str):
         query = 'create %s;\n' % self._dataverse

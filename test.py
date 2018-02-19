@@ -8,6 +8,7 @@ if __name__ == '__main__':
     # print(tmp['text'])
     text = tmp['truncated'] == True
     print(text.head(2))
+    print(text.query)
     print(type(text.head(2)))
     text = tmp[tmp['truncated'] == True]
     print(text.head(2))
