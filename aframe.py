@@ -5,10 +5,12 @@ import pandas.io.json as json
 import re
 
 class AFrameObj:
-    def __init__(self, schema, query=None):
+    def __init__(self, dataverse, dataset, schema, query=None):
         self._schema = schema
         self._query = query
         self._data = None
+        self._dataverse = dataverse
+        self._dataset = dataset
 
     def __str__(self):
         return 'Column: '+str(self._schema)
@@ -26,34 +28,38 @@ class AFrameObj:
         if all(i is None for i in results):
             raise KeyError(self._schema)
         self._data = results
-        return pd.Series(self._data)
+        # return pd.Series(self._data)
+        return pd.DataFrame(json.read_json(json.dumps(results)))
 
     def head(self, num=5):
         new_query = self._query[:-1]+' limit %d;' % num
         results = AFrame.send_request(new_query)
         if all(i is None for i in results):
             raise KeyError(self._schema)
-        return pd.Series(results)
+        # return pd.Series(results)
+        return pd.DataFrame(json.read_json(json.dumps(results)))
 
     def __eq__(self, other):
         if isinstance(self, AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
-            tmp = re.sub(str(self._schema), "t", str(self._query))
-            new_query = tmp[:-1] + ' t where %s = %s;' % (self._schema, other)
+            old_query = self._query[:-1]
+            new_query = 'with q as(%s)\nselect t1.id, t1.%s=%s %s from q t1;' % \
+                   (old_query, self._schema, str(other), self._schema)
             self._query = new_query
-            # print(new_query)
-            return AFrameObj(self._schema, self._query)
+            return AFrameObj(self._dataverse, self._dataset, self._schema, self._query)
 
     def __and__(self, other):
         if isinstance(self, AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
             if isinstance(other, AFrameObj):
-                sub_query = other.query.split("where")
-                new_query = self.query[:-1] + ' and' + sub_query[1]
-                self._query = new_query
-                return AFrameObj(self._schema, self._query)
+                left_q = self.query[:-1]
+                right_q = other.query[:-1]
+                new_q = 'with q1 as (%s), q2 as(%s)\n select t1.id, t1.%s and t2.%s as result from ' \
+                        'q1 t1, q2 t2 where t1.id=t2.id;' \
+                        % (left_q, right_q, self.schema, other.schema)
+                return AFrameObj(self._dataverse, self._dataset, 'result', new_q)
 
     # def __getitem__(self, key):
     #     if isinstance(key, AFrameObj):
@@ -97,15 +103,21 @@ class AFrame:
 
     def __getitem__(self, key):
         if isinstance(key, AFrameObj):
-            return AFrameObj(key.schema, key.query)
+            old_query = key.query[:-1]
+            new_query = 'with q as('+old_query+')\n' \
+                                               'select value t from q t1 LEFT OUTER JOIN %s.%s t on t.id=t1.id ' \
+                                               'where t1.%s = true;' % (self._dataverse, self._dataset, key.schema)
+
+            return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
         if self._columns:
             dataset = self._dataverse + '.' + self._dataset
-            query = 'select value t.%s from %s t;' % (key, dataset)
+            # query = 'select value t.%s from %s t;' % (key, dataset)
+            query = 'select t.id, t.%s from %s t;' % (key, dataset)
             for col in self._columns:
                 if col['name'] == key:
                     query = 'select value %s from %s;' % (key, dataset)
-                    return AFrameObj(col, query)
-            return AFrameObj(key, query)
+                    return AFrameObj(self._dataverse, self._dataset, col, query)
+            return AFrameObj(self._dataverse, self._dataset, key, query)
 
     def __len__(self):
         dataset = self._dataverse+'.'+self._dataset
@@ -136,7 +148,6 @@ class AFrame:
                     'from %s t limit %d;' % (dataset, sample)
             result = self.send_request(query)
             return pd.DataFrame(json.read_json(json.dumps(result)))
-
 
     def create(self, path:str):
         query = 'create %s;\n' % self._dataverse

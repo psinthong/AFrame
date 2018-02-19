@@ -3,14 +3,25 @@ import pandas as pd
 
 if __name__ == '__main__':
 
-    tmp = AFrame(dataverse='testSK', dataset='TweetItems')
+    tmp = AFrame(dataverse='test', dataset='TweetItems')
     # print(tmp)
     # print(tmp['text'])
-    # text = tmp['source'].head(2)
-    # print(text)
+    text = tmp['truncated'] == True
+    print(text.head(2))
+    print(type(text.head(2)))
+    text = tmp[tmp['truncated'] == True]
+    print(text.head(2))
+    text = (tmp['truncated'] == True) & (tmp['favorited'] == False)
+    print(text.head(2))
+    text = tmp[(tmp['truncated'] == True) & (tmp['favorited'] == False)]
+    print(text.head(2))
+
+
+    # text = tmp[(tmp['truncated'] == True) & (tmp['favorited'] == False)]
+    # print(text.head(2))
     # trunc = tmp['truncated'].head(5)
     # # print(trunc)
-    trucTrue = tmp[(tmp['favorited'] == False) & (tmp['retweet_count'] == 0) & (tmp['truncated'] == False)]
+    # trucTrue = tmp[(tmp['favorited'] == False) & (tmp['retweet_count'] == 0) & (tmp['truncated'] == False)]
     #
     # print(trucTrue.query)
     # trucTrue.get_dataverse()
@@ -23,12 +34,16 @@ if __name__ == '__main__':
 
     # print(trucTrue.head())
     df = tmp.toPandas(4)
+    df2 =(df['truncated'] == True) & (df['favorited'] == False)
+    print(df2)
     # print(df)
     # a = df[(df['truncated'] == True) & (df['retweet_count'] == 0)]
     # print(a)
-
-    print(df['retweet_count'] == 0)
-    print(df[df['retweet_count'] == 0])
-    q1 = tmp['retweet_count'] == 0
-
-    print(q1.head())
+    # print(df[['truncated', 'favorited', 'retweet_count']])
+    #
+    # trc = df['truncated'] == True
+    # print(type(trc))
+    # print(df[df['truncated'] == True])
+    # q1 = tmp['retweet_count'] == 0
+    #
+    # print(q1.head())
