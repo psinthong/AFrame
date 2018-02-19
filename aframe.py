@@ -52,7 +52,7 @@ class AFrameObj:
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
             old_query = self._query[:-1]
-            new_query = 'with q as(%s) select t1.id, t1.%s=%s %s from q t1;' % \
+            new_query = 'with q as(%s) from q t1 select t1.id, t1.%s=%s %s;' % \
                    (old_query, self._schema, str(other), self._schema)
             self._query = new_query
             return AFrameObj(self._dataverse, self._dataset, self._schema, self._query)
@@ -64,8 +64,9 @@ class AFrameObj:
             if isinstance(other, AFrameObj):
                 left_q = self.query[:-1]
                 right_q = other.query[:-1]
-                new_q = 'with q1 as (%s), \n  q2 as(%s)\n select t1.id, t1.%s and t2.%s as result from ' \
-                        'q1 t1, q2 t2 where t1.id=t2.id;' \
+                new_q = 'with q1 as (%s), \n  q2 as(%s)\n ' \
+                        'from q1 t1, q2 t2 where t1.id=t2.id ' \
+                        'select t1.id, t1.%s and t2.%s as result;' \
                         % (left_q, right_q, self.schema, other.schema)
                 return AFrameObj(self._dataverse, self._dataset, 'result', new_q)
 
@@ -113,14 +114,15 @@ class AFrame:
         if isinstance(key, AFrameObj):
             old_query = key.query[:-1]
             new_query = 'with q as('+old_query+')\n' \
-                                               'select value t from q t1 LEFT OUTER JOIN %s.%s t on t.id=t1.id ' \
-                                               'where t1.%s = true;' % (self._dataverse, self._dataset, key.schema)
+                                               'from q t1 LEFT OUTER JOIN %s.%s t on t.id=t1.id ' \
+                                               'where t1.%s = true ' \
+                                               'select value t;' % (self._dataverse, self._dataset, key.schema)
 
             return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
         if self._columns:
             dataset = self._dataverse + '.' + self._dataset
             # query = 'select value t.%s from %s t;' % (key, dataset)
-            query = 'select t.id, t.%s from %s t;' % (key, dataset)
+            query = 'from %s t select t.id, t.%s;' % (dataset, key)
             # for col in self._columns:
             #     if col['name'] == key:
             #         query = 'select %s from %s;' % (key, dataset)
