@@ -34,9 +34,9 @@ if __name__ == '__main__':
     # print(len(tmp))
 
     # print(trucTrue.head())
-    df = tmp.toPandas(4)
-    df2 =(df['truncated'] == True) & (df['favorited'] == False)
-    print(df2)
+    # df = tmp.toPandas(4)
+    # df2 =(df['truncated'] == True) & (df['favorited'] == False)
+    # print(df2)
     # print(df)
     # a = df[(df['truncated'] == True) & (df['retweet_count'] == 0)]
     # print(a)
