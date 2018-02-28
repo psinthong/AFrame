@@ -2,7 +2,7 @@ import pandas as pd
 import urllib.parse
 import urllib.request
 import pandas.io.json as json
-from AFrameObj import AFrameObj
+from aframeObj import AFrameObj
 
 
 class AFrame:

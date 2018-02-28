@@ -1,4 +1,7 @@
-from aframe import AFrame
+import aframe as af
+import pandas as pd
+import pandas.io.json as json
+
 
 class AFrameObj:
     def __init__(self, dataverse, dataset, schema, query=None):
@@ -20,8 +23,8 @@ class AFrameObj:
         return str(self._query)
 
     def collect(self):
-        results = AFrame.send_request(self._query)
-        result_flatten = AFrame.attach_row_id(results)
+        results = af.AFrame.send_request(self._query)
+        result_flatten = af.AFrame.attach_row_id(results)
         if all(i is None for i in result_flatten):
             raise KeyError(self._schema)
         self._data = result_flatten
@@ -32,8 +35,8 @@ class AFrameObj:
 
     def head(self, num=5):
         new_query = self._query[:-1]+' order by t.row_id limit %d;' % num
-        results = AFrame.send_request(new_query)
-        result_flatten = AFrame.attach_row_id(results)
+        results = af.AFrame.send_request(new_query)
+        result_flatten = af.AFrame.attach_row_id(results)
         if all(i is None for i in result_flatten):
             raise KeyError(self._schema)
         # return pd.Series(results)
@@ -43,7 +46,7 @@ class AFrameObj:
         return result
 
     def __eq__(self, other):
-        if isinstance(self, AFrame):
+        if isinstance(self, af.AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
             old_query = self._query[:-1]
@@ -53,7 +56,7 @@ class AFrameObj:
             return AFrameObj(self._dataverse, self._dataset, self._schema, self._query)
 
     def __and__(self, other):
-        if isinstance(self, AFrame):
+        if isinstance(self, af.AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
             if isinstance(other, AFrameObj):
@@ -67,7 +70,7 @@ class AFrameObj:
 
     def toAframe(self):
         dataverse, dataset = self.get_dataverse()
-        return AFrame(dataverse, dataset)
+        return af.AFrame(dataverse, dataset)
 
     def get_dataverse(self):
         sub_query = self.query.split("from")
