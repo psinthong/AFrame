@@ -17,6 +17,9 @@ if __name__ == '__main__':
     text = tmp[(tmp['truncated'] == True) & (tmp['favorited'] == False)]
     print(text.head(2))
 
+    sl = tmp[0:2]
+    print(sl.query)
+    pd.DataFrame().groupby()
 
     # text = tmp[(tmp['truncated'] == True) & (tmp['favorited'] == False)]
     # print(text.head(2))
