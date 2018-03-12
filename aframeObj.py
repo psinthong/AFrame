@@ -46,12 +46,21 @@ class AFrameObj:
         return result
 
     def __eq__(self, other):
+        return self.boolean_exp(other, '=')
+
+    def __gt__(self, other):
+        return self.boolean_exp(other, '>')
+
+    def __lt__(self, other):
+        return self.boolean_exp(other, '<')
+
+    def boolean_exp(self, other, exp):
         if isinstance(self, af.AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
             old_query = self._query[:-1]
-            new_query = 'with q as(%s) from q t select t.row_id, t.%s=%s %s;' % \
-                   (old_query, self._schema, str(other), self._schema)
+            new_query = 'with q as(%s) from q t select t.row_id, t.%s %s %s %s;' % \
+                   (old_query, self._schema, exp, str(other), self._schema)
             self._query = new_query
             return AFrameObj(self._dataverse, self._dataset, self._schema, self._query)
 
@@ -67,6 +76,7 @@ class AFrameObj:
                         'select t.row_id, t.%s and t2.%s as result;' \
                         % (left_q, right_q, self.schema, other.schema)
                 return AFrameObj(self._dataverse, self._dataset, 'result', new_q)
+
 
     def toAframe(self):
         dataverse, dataset = self.get_dataverse()

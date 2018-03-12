@@ -17,7 +17,7 @@ class AFrame:
         self._datatype_name = None
         self._info = dict()
         #initialize
-        self.get_dataset()
+        self.get_dataset(dataset)
 
     def __repr__(self):
         return self.__str__()
@@ -128,9 +128,9 @@ class AFrame:
         if columns is None:
             raise ValueError('no columns specified')
 
-    def get_dataset(self):
-        query = 'select value dt from Metadata.`Datatype` dt ' \
-                'where dt. DataverseName = \'%s\';' % self._dataverse
+    def get_dataset(self, dataset):
+        query = 'select value dt from Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
+                'where ds.DatasetName = \'%s\' and ds.DatatypeName = dt.DatatypeName;' % dataset
 
         result = self.send_request(query)[0]
 
