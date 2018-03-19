@@ -11,7 +11,7 @@ class AFrame:
         # if dataset doesn't exist -> create it
         # else load in its definition
         self._dataverse = dataverse
-        self._dataset = dataset+'_c'
+        self._dataset = dataset
         self._columns = columns
         self._datatype = None
         self._datatype_name = None
@@ -24,13 +24,16 @@ class AFrame:
 
     def __getitem__(self, key):
         if isinstance(key, AFrameObj):
-            old_query = key.query[:-1]
-            new_query = 'with q as('+old_query+')\n' \
-                                               'from q t1 LEFT OUTER JOIN %s.%s t on t.row_id=t1.row_id ' \
-                                               'where t1.%s ' \
-                                               'select value t;' % (self._dataverse, self._dataset, key.schema)
-
+            dataset = self._dataverse + '.' + self._dataset
+            new_query = 'select value t from %s t where %s;' %(dataset, key.schema)
             return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
+            # old_query = key.query[:-1]
+            # new_query = 'with q as('+old_query+')\n' \
+            #                                    'from q t1 LEFT OUTER JOIN %s.%s t on t.row_id=t1.row_id ' \
+            #                                    'where t1.%s ' \
+            #                                    'select value t;' % (self._dataverse, self._dataset, key.schema)
+            #
+            # return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
         if isinstance(key, slice):
             step = 1
             start = 0
@@ -54,11 +57,15 @@ class AFrame:
 
             return AFrameObj(self._dataverse, self._dataset, None, new_query)
 
-        if self._columns:
+        if isinstance(key, str):
             dataset = self._dataverse + '.' + self._dataset
-            # query = 'select value t.%s from %s t;' % (key, dataset)
-            query = 'from %s t select t.row_id, t.data.%s;' % (dataset, key)
+            query = 'select value t.%s from %s t;' % (key, dataset)
             return AFrameObj(self._dataverse, self._dataset, key, query)
+        # if self._columns:
+        #     dataset = self._dataverse + '.' + self._dataset
+        #     # query = 'select value t.%s from %s t;' % (key, dataset)
+        #     query = 'from %s t select t.row_id, t.data.%s;' % (dataset, key)
+        #     return AFrameObj(self._dataverse, self._dataset, key, query)
 
     def __len__(self):
         dataset = self._dataverse+'.'+self._dataset
@@ -86,13 +93,15 @@ class AFrame:
         else:
             dataset = self._dataverse+'.'+self._dataset
             if sample > 0:
-                query = 'select value t from %s limit %d;' % (dataset, sample)
+                query = 'select value t from %s t limit %d;' % (dataset, sample)
             else:
                 query = 'select value t from %s t;' % dataset
             result = self.send_request(query)
-            results = AFrame.attach_row_id(result)
-            df = pd.DataFrame(json.read_json(json.dumps(results)))
-            df.set_index('row_id', inplace=True)
+            df = pd.DataFrame(json.read_json(json.dumps(result)))
+
+            # results = AFrame.attach_row_id(result)
+            # df = pd.DataFrame(json.read_json(json.dumps(results)))
+            # df.set_index('row_id', inplace=True)
             return df
 
     @staticmethod
