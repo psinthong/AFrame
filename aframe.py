@@ -1,8 +1,10 @@
 import pandas as pd
+import numpy as np
 import urllib.parse
 import urllib.request
 import pandas.io.json as json
 from aframeObj import AFrameObj
+from groupby import AFrameGroupBy
 
 
 class AFrame:
@@ -61,6 +63,9 @@ class AFrame:
             dataset = self._dataverse + '.' + self._dataset
             query = 'select value t.%s from %s t;' % (key, dataset)
             return AFrameObj(self._dataverse, self._dataset, key, query)
+
+        if isinstance(key, (np.ndarray, list)):
+            return
         # if self._columns:
         #     dataset = self._dataverse + '.' + self._dataset
         #     # query = 'select value t.%s from %s t;' % (key, dataset)
@@ -156,6 +161,32 @@ class AFrame:
             nullable = field['IsNullable']
             column = dict([('name', name), ('type', type), ('nullable', nullable)])
             self._columns.append(column)
+
+    def join(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
+
+        join_types = {'inner': 'JOIN', 'left': 'LEFT OUTER JOIN'}
+        if isinstance(other, AFrame):
+            if left_on is None or right_on is None:
+                raise ValueError('Missing join columns')
+            if how not in join_types:
+                raise NotImplementedError('Join type specified is not yet available')
+
+            l_dataset = self._dataverse + '.' + self._dataset
+            r_dataset = other._dataverse + '.' + other._dataset
+
+            if left_on != right_on:
+                query = 'select value object_merge(%s,%s) '% (lsuffix, rsuffix) + 'from %s %s ' %(l_dataset, lsuffix) +\
+                        join_types[how] + ' %s %s on %s.%s=%s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+            else:
+                query = 'select %s,%s '% (lsuffix, rsuffix) + 'from %s %s ' %(l_dataset, lsuffix) +\
+                        join_types[how] + ' %s %s on %s.%s=%s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+            schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
+                     ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+
+            return AFrameObj(self._dataverse, self._dataset, schema, query)
+
+    def groupby(self, by):
+        return AFrameGroupBy(self._dataverse, self._dataset, by)
 
     @staticmethod
     def send_request(query: str):

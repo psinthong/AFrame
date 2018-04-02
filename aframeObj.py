@@ -52,7 +52,7 @@ class AFrameObj:
 
     def __le__(self, other):
         return self.binary_opt(other, '<=')
-    
+
     def binary_opt(self, other, opt):
         dataset = self._dataverse+'.'+self._dataset
         if isinstance(self, af.AFrame):
