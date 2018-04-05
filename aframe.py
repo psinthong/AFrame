@@ -119,6 +119,12 @@ class AFrame:
             return flatten_results
         return result_lst
 
+    @staticmethod
+    def unnest(col):
+        if isinstance(col, AFrameObj):
+            schema = 'unnest(%s)' % col.schema
+            new_query = 'select value e from (%s) t unnest t e;' % col.query[:-1]
+            return AFrameObj(col._dataverse, col._dataset, schema, new_query)
 
     def create(self, path:str):
         query = 'create %s;\n' % self._dataverse
