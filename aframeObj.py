@@ -82,3 +82,26 @@ class AFrameObj:
         dataverse = data[0]
         dataset = data[1].split(" ")[0]
         return dataverse, dataset
+
+    def map(self, func, *args, **kwargs):
+        dataset = self._dataverse + '.' + self._dataset
+        if not isinstance(func, str):
+            raise TypeError('Function name must be string.')
+        args_str = ''
+        if args:
+            for arg in args:
+                if isinstance(arg, str):
+                    args_str += ', \"%s\"' % arg
+                else:
+                    args_str += ', ' + str(arg)
+        if kwargs:
+            for key, value in kwargs.items():
+                if isinstance(value, str):
+                    args_str += ', %s = \"%s\"' % (key, value)
+                else:
+                    args_str += ', %s = %s' % (key, str(value))
+        schema = func + '(' + self.schema + args_str + ')'
+        new_query = 'select value %s(t.%s%s) from %s t;' % (func, self.schema, args_str, dataset)
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+

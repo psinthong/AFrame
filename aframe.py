@@ -188,6 +188,27 @@ class AFrame:
     def groupby(self, by):
         return AFrameGroupBy(self._dataverse, self._dataset, by)
 
+    def apply(self, func, *args, **kwargs):
+        if not isinstance(func, str):
+            raise TypeError('Function name must be string.')
+        dataset = self._dataverse + '.' + self._dataset
+        args_str = ''
+        if args:
+            for arg in args:
+                if isinstance(arg, str):
+                    args_str += ', \"%s\"' % arg
+                else:
+                    args_str += ', ' + str(arg)
+        if kwargs:
+            for key, value in kwargs.items():
+                if isinstance(value, str):
+                    args_str += ', %s = \"%s\"' % (key, value)
+                else:
+                    args_str += ', %s = %s' % (key, str(value))
+        schema = func + '(t' + args_str + ')'
+        new_query = 'select value %s(t%s) from %s t;' % (func, args_str, dataset)
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
     @staticmethod
     def send_request(query: str):
         host = 'http://localhost:19002/query/service'
