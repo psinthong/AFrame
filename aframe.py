@@ -20,6 +20,7 @@ class AFrame:
         self._info = dict()
         #initialize
         self.get_dataset(dataset)
+        self.query = None
 
     def __repr__(self):
         return self.__str__()
@@ -73,10 +74,14 @@ class AFrame:
         #     return AFrameObj(self._dataverse, self._dataset, key, query)
 
     def __len__(self):
-        dataset = self._dataverse+'.'+self._dataset
+        result = self.get_count()
+        self._info['count'] = result
+        return result
+
+    def get_count(self):
+        dataset = self._dataverse + '.' + self._dataset
         query = 'select value count(*) from %s;' % dataset
         result = self.send_request(query)[0]
-        self._info['count'] = result
         return result
 
     def __str__(self):
@@ -119,12 +124,53 @@ class AFrame:
             return flatten_results
         return result_lst
 
-    @staticmethod
-    def unnest(col):
-        if isinstance(col, AFrameObj):
+    def unnest(self, col, appended=False, name=None):
+        if not isinstance(col, AFrameObj):
+            raise ValueError('A column must be of type \'AFrameObj\'')
+        if isinstance(col, AFrameObj) and not appended:
             schema = 'unnest(%s)' % col.schema
             new_query = 'select value e from (%s) t unnest t e;' % col.query[:-1]
-            return AFrameObj(col._dataverse, col._dataset, schema, new_query)
+            return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+        elif isinstance(col, AFrameObj) and appended:
+            if not name:
+                raise ValueError('Must provide a string name for the appended column.')
+            dataset = self._dataverse + '.' + self._dataset
+            new_query = 'select u %s, t.* from %s t unnest t.%s u;' % (name, dataset, col.schema)
+            schema = col.schema
+            return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+    def withColumn(self, name, col):
+        if not isinstance(name, str):
+            raise ValueError('Must provide a string name for the appended column.')
+        if not isinstance(col, AFrameObj):
+            raise ValueError('A column must be of type \'AFrameObj\'')
+        cnt = self.get_column_count(col)
+        if self.get_count() != cnt:
+            print(self.get_count(), cnt)
+            raise ValueError('The appended column must have the same size as the original AFrame.')
+        dataset = self._dataverse + '.' + self._dataset
+        new_query = 'select t.*, t.%s %s from %s t;' % (col.schema, name, dataset)
+        schema = col.schema
+        # columns = self._columns
+        # columns.append(schema)
+        # new_af = AFrame(self._dataverse, self._dataset, columns)
+        # new_af.query = new_query
+        # return new_af
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+    def toAFrameObj(self):
+        if self.query:
+            return AFrameObj(self._dataverse, self._dataset, None, self.query)
+
+    @staticmethod
+    def get_column_count(other):
+        if not isinstance(other, AFrameObj):
+            raise ValueError('A column must be of type \'AFrameObj\'')
+        if isinstance(other, AFrameObj):
+            query = 'select value count(*) from (%s) t;' % other.query[:-1]
+            print(query)
+            return AFrame.send_request(query)[0]
+
 
     def create(self, path:str):
         query = 'create %s;\n' % self._dataverse
@@ -224,3 +270,19 @@ class AFrame:
         with urllib.request.urlopen(host, data) as handler:
             result = json.loads(handler.read())
             return result['results']
+
+    @staticmethod
+    def send(query: str):
+        host = 'http://localhost:19002/query/service'
+        data = dict()
+        data['statement'] = query
+        data = urllib.parse.urlencode(data).encode('utf-8')
+        with urllib.request.urlopen(host, data) as handler:
+            result = json.loads(handler.read())
+            return result['status']
+
+    @staticmethod
+    def drop(dataverse, dataset):
+        query = 'drop dataset %s.%s;' % (dataverse, dataset)
+        result = AFrame.send(query)
+        return result
