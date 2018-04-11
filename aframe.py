@@ -9,7 +9,7 @@ from groupby import AFrameGroupBy
 
 class AFrame:
 
-    def __init__(self, dataverse, dataset, columns=[], path=None):
+    def __init__(self, dataverse, dataset, columns=None, path=None):
         # if dataset doesn't exist -> create it
         # else load in its definition
         self._dataverse = dataverse
@@ -30,13 +30,7 @@ class AFrame:
             dataset = self._dataverse + '.' + self._dataset
             new_query = 'select value t from %s t where %s;' %(dataset, key.schema)
             return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
-            # old_query = key.query[:-1]
-            # new_query = 'with q as('+old_query+')\n' \
-            #                                    'from q t1 LEFT OUTER JOIN %s.%s t on t.row_id=t1.row_id ' \
-            #                                    'where t1.%s ' \
-            #                                    'select value t;' % (self._dataverse, self._dataset, key.schema)
-            #
-            # return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
+
         if isinstance(key, slice):
             step = 1
             start = 0
@@ -197,7 +191,7 @@ class AFrame:
     def get_dataset(self, dataset):
         query = 'select value dt from Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
                 'where ds.DatasetName = \'%s\' and ds.DatatypeName = dt.DatatypeName;' % dataset
-
+        print(query)
         result = self.send_request(query)[0]
 
         is_open = result['Derived']['Record']['IsOpen']
@@ -212,7 +206,11 @@ class AFrame:
             type = field['FieldType']
             nullable = field['IsNullable']
             column = dict([('name', name), ('type', type), ('nullable', nullable)])
-            self._columns.append(column)
+            if self._columns:
+                self._columns.append(column)
+            else:
+                self._columns = [column]
+
 
     def join(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
 
