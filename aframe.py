@@ -26,46 +26,23 @@ class AFrame:
         return self.__str__()
 
     def __getitem__(self, key):
+        dataset = self._dataverse + '.' + self._dataset
         if isinstance(key, AFrameObj):
-            dataset = self._dataverse + '.' + self._dataset
             new_query = 'select value t from %s t where %s;' %(dataset, key.schema)
             return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
 
-        if isinstance(key, slice):
-            step = 1
-            start = 0
-            stop = self.__len__()
-            new_query = ''
-            if key.step:
-                step = key.step
-            if key.start:
-                start = key.start
-            if key.stop:
-                stop=key.stop
-
-            dataset = self._dataverse + '.' + self._dataset
-            row_ids = []
-            if step != 1:
-                for i in range(start, stop, step):
-                    row_ids.append(i)
-                new_query = 'select value t from %s t where t.row_id in %s;' % (dataset, row_ids)
-            else:
-                new_query = 'select value t from %s t where t.row_id >= %d and t.row_id < %d;' % (dataset, start, stop)
-
-            return AFrameObj(self._dataverse, self._dataset, None, new_query)
-
         if isinstance(key, str):
-            dataset = self._dataverse + '.' + self._dataset
             query = 'select value t.%s from %s t;' % (key, dataset)
             return AFrameObj(self._dataverse, self._dataset, key, query)
 
         if isinstance(key, (np.ndarray, list)):
-            return
-        # if self._columns:
-        #     dataset = self._dataverse + '.' + self._dataset
-        #     # query = 'select value t.%s from %s t;' % (key, dataset)
-        #     query = 'from %s t select t.row_id, t.data.%s;' % (dataset, key)
-        #     return AFrameObj(self._dataverse, self._dataset, key, query)
+            fields = ''
+            for i in range(len(key)):
+                if i > 0:
+                    fields += ', '
+                fields += 't.%s' % key[i]
+            query = 'select %s from %s t;' % (fields, dataset)
+            return AFrameObj(self._dataverse, self._dataset, key, query)
 
     def __len__(self):
         result = self.get_count()
@@ -101,12 +78,19 @@ class AFrame:
             else:
                 query = 'select value t from %s t;' % dataset
             result = self.send_request(query)
-            df = pd.DataFrame(json.read_json(json.dumps(result)))
-
-            # results = AFrame.attach_row_id(result)
-            # df = pd.DataFrame(json.read_json(json.dumps(results)))
-            # df.set_index('row_id', inplace=True)
+            data = json.read_json(json.dumps(result))
+            df = pd.DataFrame(data)
+            if '_uuid' in df.columns:
+                df.drop('_uuid', axis=1, inplace=True)
             return df
+
+    def collect_query(self):
+        if self._dataset is None:
+            raise ValueError('no dataset specified')
+        else:
+            dataset = self._dataverse+'.'+self._dataset
+            query = 'select value t from %s t;' % dataset
+            return query
 
     @staticmethod
     def attach_row_id(result_lst):
@@ -140,7 +124,7 @@ class AFrame:
             raise ValueError('A column must be of type \'AFrameObj\'')
         cnt = self.get_column_count(col)
         if self.get_count() != cnt:
-            print(self.get_count(), cnt)
+            # print(self.get_count(), cnt)
             raise ValueError('The appended column must have the same size as the original AFrame.')
         dataset = self._dataverse + '.' + self._dataset
         new_query = 'select t.*, t.%s %s from %s t;' % (col.schema, name, dataset)
@@ -162,7 +146,7 @@ class AFrame:
             raise ValueError('A column must be of type \'AFrameObj\'')
         if isinstance(other, AFrameObj):
             query = 'select value count(*) from (%s) t;' % other.query[:-1]
-            print(query)
+            # print(query)
             return AFrame.send_request(query)[0]
 
 
@@ -191,7 +175,7 @@ class AFrame:
     def get_dataset(self, dataset):
         query = 'select value dt from Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
                 'where ds.DatasetName = \'%s\' and ds.DatatypeName = dt.DatatypeName;' % dataset
-        print(query)
+        # print(query)
         result = self.send_request(query)[0]
 
         is_open = result['Derived']['Record']['IsOpen']
@@ -211,7 +195,6 @@ class AFrame:
             else:
                 self._columns = [column]
 
-
     def join(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
 
         join_types = {'inner': 'JOIN', 'left': 'LEFT OUTER JOIN'}
@@ -228,8 +211,8 @@ class AFrame:
                 query = 'select value object_merge(%s,%s) '% (lsuffix, rsuffix) + 'from %s %s ' %(l_dataset, lsuffix) +\
                         join_types[how] + ' %s %s on %s.%s=%s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             else:
-                query = 'select %s,%s '% (lsuffix, rsuffix) + 'from %s %s ' %(l_dataset, lsuffix) +\
-                        join_types[how] + ' %s %s on %s.%s=%s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+                query = 'select %s,%s '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
+                        join_types[how] + ' %s %s on %s.%s=%s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
                      ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
 
@@ -280,7 +263,20 @@ class AFrame:
             return result['status']
 
     @staticmethod
-    def drop(dataverse, dataset):
-        query = 'drop dataset %s.%s;' % (dataverse, dataset)
-        result = AFrame.send(query)
-        return result
+    def drop(aframe):
+        if isinstance(aframe, AFrame):
+            dataverse = aframe._dataverse
+            dataset = aframe._dataset
+            query = 'drop dataset %s.%s;' % (dataverse, dataset)
+            result = AFrame.send(query)
+            return result
+
+    @staticmethod
+    def send_perf(query):
+        host = 'http://localhost:19002/query/service'
+        data = dict()
+        data['statement'] = query
+        data = urllib.parse.urlencode(data).encode('utf-8')
+        with urllib.request.urlopen(host, data) as handler:
+            ret = handler.read()
+            return ret
