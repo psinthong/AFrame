@@ -77,7 +77,7 @@ class AFrame:
 
     @property
     def columns(self):
-        return str(self._columns)
+        return self._columns
 
     def toPandas(self, sample: int = 0):
         from pandas.io import json
@@ -203,7 +203,7 @@ class AFrame:
             name = field['FieldName']
             type = field['FieldType']
             nullable = field['IsNullable']
-            column = dict([('name', name), ('type', type), ('nullable', nullable)])
+            column = dict([(name, type)])
             if self._columns:
                 self._columns.append(column)
             else:
@@ -278,6 +278,35 @@ class AFrame:
         schema = 'ORDER BY %s' % by
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
+    def describe(self):
+        rows = []
+        columns = ['min', 'max', 'mean', 'count', 'std']
+        data = []
+        dataset = self._dataverse + '.' + self._dataset
+
+        cols = self.columns
+        for col in cols:
+            if list(col.values())[0] == 'int64':
+                key = list(col.keys())[0]
+                rows.append(key)
+                query = 'SELECT count(t.%s) cnt, ' \
+                        'min(t.%s) min, ' \
+                        'max(t.%s) max, ' \
+                        'avg(t.%s) mean ' \
+                        'FROM %s AS t;' % (key,key,key,key,dataset)
+                stats = self.send_request(query)[0]
+                min = stats['min']
+                max = stats['max']
+                mean = stats['mean']
+                cnt = stats['cnt']
+                query = 'SELECT VALUE sqrt(avg(square)) ' \
+                        'FROM (SELECT VALUE power(%s - t.%s, 2) ' \
+                                'FROM %s t) square;' % (mean, key, dataset)
+                std = self.send_request(query)[0]
+                row = [min,max,mean,cnt,std]
+                data.append(row)
+        res = pd.DataFrame(data, index=rows, columns=columns)
+        return res
     @staticmethod
     def send_request(query: str):
         host = 'http://localhost:19002/query/service'
