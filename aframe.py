@@ -28,11 +28,11 @@ class AFrame:
     def __getitem__(self, key):
         dataset = self._dataverse + '.' + self._dataset
         if isinstance(key, AFrameObj):
-            new_query = 'select value t from %s t where %s;' %(dataset, key.schema)
+            new_query = 'SELECT VALUE t FROM %s t WHERE %s;' %(dataset, key.schema)
             return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
 
         if isinstance(key, str):
-            query = 'select value t.%s from %s t;' % (key, dataset)
+            query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
             return AFrameObj(self._dataverse, self._dataset, key, query)
 
         if isinstance(key, (np.ndarray, list)):
@@ -41,7 +41,7 @@ class AFrame:
                 if i > 0:
                     fields += ', '
                 fields += 't.%s' % key[i]
-            query = 'select %s from %s t;' % (fields, dataset)
+            query = 'SELECT %s FROM %s t;' % (fields, dataset)
             return AFrameObj(self._dataverse, self._dataset, key, query)
 
     def __len__(self):
@@ -51,7 +51,7 @@ class AFrame:
 
     def get_count(self):
         dataset = self._dataverse + '.' + self._dataset
-        query = 'select value count(*) from %s;' % dataset
+        query = 'SELECT VALUE count(*) FROM %s;' % dataset
         result = self.send_request(query)[0]
         return result
 
@@ -61,6 +61,19 @@ class AFrame:
             return txt + str(self._columns)
         else:
             return 'Empty AsterixDB DataFrame'
+
+    def head(self, sample=5):
+        from pandas.io import json
+        dataset = self._dataverse + '.' + self._dataset
+        if self.query is None:
+            self.query = 'SELECT VALUE t FROM %s t;' % dataset
+        new_query = self.query[:-1] + ' limit %d;' % sample
+        result = self.send_request(new_query)
+        data = json.read_json(json.dumps(result))
+        df = pd.DataFrame(data)
+        if '_uuid' in df.columns:
+            df.drop('_uuid', axis=1, inplace=True)
+        return df
 
     @property
     def columns(self):
@@ -74,9 +87,9 @@ class AFrame:
         else:
             dataset = self._dataverse+'.'+self._dataset
             if sample > 0:
-                query = 'select value t from %s t limit %d;' % (dataset, sample)
+                query = 'SELECT VALUE t FROM %s t LIMIT %d;' % (dataset, sample)
             else:
-                query = 'select value t from %s t;' % dataset
+                query = 'SELECT VALUE t FROM %s t;' % dataset
             result = self.send_request(query)
             data = json.read_json(json.dumps(result))
             df = pd.DataFrame(data)
@@ -89,7 +102,7 @@ class AFrame:
             raise ValueError('no dataset specified')
         else:
             dataset = self._dataverse+'.'+self._dataset
-            query = 'select value t from %s t;' % dataset
+            query = 'SELECT VALUE t FROM %s t;' % dataset
             return query
 
     @staticmethod
@@ -107,13 +120,13 @@ class AFrame:
             raise ValueError('A column must be of type \'AFrameObj\'')
         if isinstance(col, AFrameObj) and not appended:
             schema = 'unnest(%s)' % col.schema
-            new_query = 'select value e from (%s) t unnest t e;' % col.query[:-1]
+            new_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % col.query[:-1]
             return AFrameObj(self._dataverse, self._dataset, schema, new_query)
         elif isinstance(col, AFrameObj) and appended:
             if not name:
                 raise ValueError('Must provide a string name for the appended column.')
             dataset = self._dataverse + '.' + self._dataset
-            new_query = 'select u %s, t.* from %s t unnest t.%s u;' % (name, dataset, col.schema)
+            new_query = 'SELECT u %s, t.* FROM %s t unnest t.%s u;' % (name, dataset, col.schema)
             schema = col.schema
             return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
@@ -127,7 +140,8 @@ class AFrame:
             # print(self.get_count(), cnt)
             raise ValueError('The appended column must have the same size as the original AFrame.')
         dataset = self._dataverse + '.' + self._dataset
-        new_query = 'select t.*, t.%s %s from %s t;' % (col.schema, name, dataset)
+        # new_query = 'select t.*, t.%s %s from %s t;' % (col.schema, name, dataset)
+        new_query = 'SELECT t.*, %s %s FROM %s t;' % (col.schema, name, dataset)
         schema = col.schema
         # columns = self._columns
         # columns.append(schema)
@@ -145,7 +159,7 @@ class AFrame:
         if not isinstance(other, AFrameObj):
             raise ValueError('A column must be of type \'AFrameObj\'')
         if isinstance(other, AFrameObj):
-            query = 'select value count(*) from (%s) t;' % other.query[:-1]
+            query = 'SELECT VALUE count(*) FROM (%s) t;' % other.query[:-1]
             # print(query)
             return AFrame.send_request(query)[0]
 
@@ -155,9 +169,9 @@ class AFrame:
         query += 'use %s;\n' % self._dataverse
         host = 'http://localhost:19002/query/service'
         data = {}
-        query += 'create type Schema as open{ \n' \
+        query += 'CREATE TYPE Schema AS open{ \n' \
                  'id: int64};\n'
-        query += 'create dataset %s(Schema) primary key id;\n' % self._dataset
+        query += 'CREATE DATASET %s(Schema) PRIMARY KEY id;\n' % self._dataset
         query += 'LOAD DATASET %s USING localfs\n ' \
                  '((\"path\"=\"127.0.0.1://%s\"),(\"format\"=\"adm\"));\n' % (self._dataset, path)
 
@@ -173,8 +187,8 @@ class AFrame:
             raise ValueError('no columns specified')
 
     def get_dataset(self, dataset):
-        query = 'select value dt from Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
-                'where ds.DatasetName = \'%s\' and ds.DatatypeName = dt.DatatypeName;' % dataset
+        query = 'SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
+                'WHERE ds.DatasetName = \'%s\' AND ds.DatatypeName = dt.DatatypeName;' % dataset
         # print(query)
         result = self.send_request(query)[0]
 
@@ -208,10 +222,10 @@ class AFrame:
             r_dataset = other._dataverse + '.' + other._dataset
 
             if left_on != right_on:
-                query = 'select value object_merge(%s,%s) '% (lsuffix, rsuffix) + 'from %s %s ' %(l_dataset, lsuffix) +\
+                query = 'SELECT VALUE object_merge(%s,%s) '% (lsuffix, rsuffix) + 'FROM %s %s ' %(l_dataset, lsuffix) +\
                         join_types[how] + ' %s %s on %s.%s=%s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             else:
-                query = 'select %s,%s '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
+                query = 'SELECT %s,%s '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
                         join_types[how] + ' %s %s on %s.%s=%s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
                      ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
@@ -239,7 +253,29 @@ class AFrame:
                 else:
                     args_str += ', %s = %s' % (key, str(value))
         schema = func + '(t' + args_str + ')'
-        new_query = 'select value %s(t%s) from %s t;' % (func, args_str, dataset)
+        new_query = 'SELECT VALUE %s(t%s) FROM %s t;' % (func, args_str, dataset)
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+    def sort_values(self, by, ascending=True):
+        dataset = self._dataverse + '.' + self._dataset
+        new_query = 'SELECT VALUE t FROM %s t ' % dataset
+        if isinstance(by, str):
+            if ascending:
+                new_query += 'ORDER BY t.%s ;' % by
+            else:
+                new_query += 'ORDER BY t.%s DESC;' % by
+
+        if isinstance(by, (np.ndarray, list)):
+            by_list = ''
+            for i in range(len(by)):
+                if i > 0:
+                    by_list += ', '
+                    by_list += 't.%s' % by[i]
+            if ascending:
+                new_query += 'ORDER BY %s;' % by_list
+            else:
+                new_query += 'ORDER BY %s DESC;' % by_list
+        schema = 'ORDER BY %s' % by
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
     @staticmethod
@@ -267,7 +303,7 @@ class AFrame:
         if isinstance(aframe, AFrame):
             dataverse = aframe._dataverse
             dataset = aframe._dataset
-            query = 'drop dataset %s.%s;' % (dataverse, dataset)
+            query = 'DROP DATASET %s.%s;' % (dataverse, dataset)
             result = AFrame.send(query)
             return result
 

@@ -1,7 +1,8 @@
 import aframe as af
 import pandas as pd
 import pandas.io.json as json
-
+from groupby import AFrameGroupBy
+import numpy as np
 
 class AFrameObj:
     def __init__(self, dataverse, dataset, schema, query=None):
@@ -13,6 +14,29 @@ class AFrameObj:
 
     def __str__(self):
         return 'Column: '+str(self._schema)
+
+    def __getitem__(self, key):
+        dataset = self._dataverse + '.' + self._dataset
+        if isinstance(key, AFrameObj):
+            raise NotImplemented
+
+        if isinstance(key, str):
+            if self._schema is not None:
+                query = 'SELECT VALUE t.%s FROM %s t WHERE %s;' %(key, dataset, self._schema)
+                return AFrameObj(self._dataverse, self._dataset, key, query)
+            else:
+                raise NotImplemented
+
+        if isinstance(key, (np.ndarray, list)):
+            fields = ''
+            for i in range(len(key)):
+                if i > 0:
+                    fields += ', '
+                fields += 't.%s' % key[i]
+            if self._schema is not None:
+                query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
+                return AFrameObj(self._dataverse, self._dataset, key, query)
+
 
     @property
     def schema(self):
@@ -31,7 +55,7 @@ class AFrameObj:
         return result
 
     def head(self, num=5):
-        new_query = self.query[:-1]+' limit %d;' % num
+        new_query = self.query[:-1]+' LIMIT %d;' % num
         results = af.AFrame.send_request(new_query)
         json_str = json.dumps(results)
         result = pd.DataFrame(data=json.read_json(json_str))
@@ -56,6 +80,10 @@ class AFrameObj:
 
     def __truediv__(self, other):
         return self.div(other)
+
+    def __len__(self):
+        query = 'SELECT VALUE count(*) FROM (%s) t;' % self.query[:-1]
+        return af.AFrame.send_request(query)[0]
 
     def add(self, value):
         if not isinstance(value, int) and not isinstance(value, float):
@@ -89,9 +117,27 @@ class AFrameObj:
 
     def arithmetic_op(self, value, op):
         dataset = self._dataverse + '.' + self._dataset
-        new_query = 'select value t.%s %s %s from %s t;' % (self.schema, op, str(value), dataset)
+        new_query = 'SELECT VALUE t.%s %s %s FROM %s t;' % (self.schema, op, str(value), dataset)
         schema = '%s + %s' % (self.schema, value)
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+    def max(self):
+        dataset = self._dataverse + '.' + self._dataset
+        new_query = 'SELECT max(t.%s) FROM %s t;' % (self.schema, dataset)
+        schema = 'max(%s)' % self.schema
+        return AFrameObj(self._dataverse, dataset, schema, new_query)
+
+    def min(self):
+        dataset = self._dataverse + '.' + self._dataset
+        new_query = 'SELECT min(t.%s) FROM %s t;' % (self.schema, dataset)
+        schema = 'min(%s)' % self.schema
+        return AFrameObj(self._dataverse, dataset, schema, new_query)
+
+    def avg(self):
+        dataset = self._dataverse + '.' + self._dataset
+        new_query = 'SELECT avg(t.%s) FROM %s t;' % (self.schema, dataset)
+        schema = 'avg(%s)' % self.schema
+        return AFrameObj(self._dataverse, dataset, schema, new_query)
 
     def __eq__(self, other):
         return self.binary_opt(other, '=')
@@ -116,26 +162,39 @@ class AFrameObj:
         if isinstance(self, af.AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
-            schema = 't.%s %s %s' %(self.schema, opt, other)
-            query = 'select value %s from %s t;' %(schema, dataset)
+            if type(other) == str:
+                schema = 't.%s %s \"%s\"' %(self.schema, opt, other)
+            else:
+                schema = 't.%s %s %s' % (self.schema, opt, other)
+            query = 'SELECT VALUE %s FROM %s t;' %(schema, dataset)
             return AFrameObj(self._dataverse, self._dataset, schema, query)
 
     def __and__(self, other):
-        dataset = self._dataverse + '.' + self._dataset
         if isinstance(self, af.AFrame):
             print('aframe instance!!')
         elif isinstance(self, AFrameObj):
             if isinstance(other, AFrameObj):
-                schema = self.schema+' and '+other.schema
-                new_query = 'select value %s from %s t;' %(schema, dataset)
-                return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+                return self.boolean_op(other, 'AND')
+
+    def __or__(self, other):
+        if isinstance(self, af.AFrame):
+            print('aframe instance!!')
+        elif isinstance(self, AFrameObj):
+            if isinstance(other, AFrameObj):
+                return self.boolean_op(other, 'OR')
+
+    def boolean_op(self, other, op):
+        dataset = self._dataverse + '.' + self._dataset
+        schema = '%s %s %s' % (self.schema , op, other.schema)
+        new_query = 'SELECT VALUE %s FROM %s t;' % (schema, dataset)
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
     def toAframe(self):
         dataverse, dataset = self.get_dataverse()
         return af.AFrame(dataverse, dataset)
 
     def get_dataverse(self):
-        sub_query = self.query.split("from")
+        sub_query = self.query.lower().split("from")
         data = sub_query[1][1:].split(".", 1)
         dataverse = data[0]
         dataset = data[1].split(" ")[0]
@@ -158,8 +217,9 @@ class AFrameObj:
                     args_str += ', %s = \"%s\"' % (key, value)
                 else:
                     args_str += ', %s = %s' % (key, str(value))
-        schema = func + '(' + self.schema + args_str + ')'
-        new_query = 'select value %s(t.%s%s) from %s t;' % (func, self.schema, args_str, dataset)
+        # schema = func + '(' + self.schema + args_str + ')'
+        schema = '%s(t.%s%s)' % (func, self.schema, args_str)
+        new_query = 'SELECT VALUE %s(t.%s%s) FROM %s t;' % (func, self.schema, args_str, dataset)
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
     def persist(self, name=None, dataverse=None):
@@ -203,3 +263,52 @@ class AFrameObj:
         result = af.AFrame.send(query)
         return result
 
+    def withColumn(self, name, col):
+        if not isinstance(name, str):
+            raise ValueError('Must provide a string name for the appended column.')
+        if not isinstance(col, AFrameObj):
+            raise ValueError('A column must be of type \'AFrameObj\'')
+        cnt = af.AFrame.get_column_count(col)
+        if self.get_count() != cnt:
+            # print(self.get_count(), cnt)
+            raise ValueError('The appended column must have the same size as the original AFrame.')
+        dataset = self._dataverse + '.' + self._dataset
+        fields = ''
+        if isinstance(self.schema, list):
+            for i in range(len(self.schema)):
+                if i == 0:
+                    fields += 't.'+self.schema[i]
+                else:
+                    fields += ', t.' + self.schema[i]
+            new_query = 'SELECT %s, %s %s FROM %s t;' % (fields, col.schema, name, dataset)
+            self.schema.append(name)
+            return AFrameObj(self._dataverse, self._dataset, self.schema, new_query)
+        new_query = 'SELECT t.*, %s %s FROM %s t;' % (col.schema, name, dataset)
+        schema = col.schema
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+    def get_count(self):
+        query = 'SELECT VALUE count(*) FROM (%s) t;' % self.query[:-1]
+        result = af.AFrame.send_request(query)[0]
+        return result
+
+    def sort_values(self, by, ascending=True):
+        new_query = 'SELECT VALUE t FROM (%s) t ' % self.query[:-1]
+        if isinstance(by, str):
+            if ascending:
+                new_query += 'ORDER BY t.%s ;' % by
+            else:
+                new_query += 'ORDER BY t.%s DESC;' % by
+
+        if isinstance(by, (np.ndarray, list)):
+            by_list = ''
+            for i in range(len(by)):
+                if i > 0:
+                    by_list += ', '
+                    by_list += 't.%s' % by[i]
+            if ascending:
+                new_query += 'ORDER BY %s;' % by_list
+            else:
+                new_query += 'ORDER BY %s DESC;' % by_list
+        schema = 'ORDER BY %s' % by
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
