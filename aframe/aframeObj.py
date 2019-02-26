@@ -1,7 +1,6 @@
 import aframe as af
 import pandas as pd
 import pandas.io.json as json
-from groupby import AFrameGroupBy
 import numpy as np
 
 class AFrameObj:

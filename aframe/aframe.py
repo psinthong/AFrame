@@ -3,8 +3,8 @@ import numpy as np
 import urllib.parse
 import urllib.request
 import pandas.io.json as json
-from aframeObj import AFrameObj
-from groupby import AFrameGroupBy
+from aframe.aframeObj import AFrameObj
+from aframe.groupby import AFrameGroupBy
 
 
 class AFrame:
@@ -280,7 +280,7 @@ class AFrame:
 
     def describe(self):
         rows = []
-        columns = ['min', 'max', 'mean', 'count', 'std']
+        columns = ['count', 'mean', 'std', 'min', 'max']
         data = []
         dataset = self._dataverse + '.' + self._dataset
 
@@ -303,10 +303,10 @@ class AFrame:
                         'FROM (SELECT VALUE power(%s - t.%s, 2) ' \
                                 'FROM %s t) square;' % (mean, key, dataset)
                 std = self.send_request(query)[0]
-                row = [min,max,mean,cnt,std]
+                row = [cnt,mean,std,min,max]
                 data.append(row)
         res = pd.DataFrame(data, index=rows, columns=columns)
-        return res
+        return res.transpose()
     @staticmethod
     def send_request(query: str):
         host = 'http://localhost:19002/query/service'
