@@ -279,34 +279,93 @@ class AFrame:
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
     def describe(self):
-        rows = []
+        num_rows = []
+        str_rows = []
         columns = ['count', 'mean', 'std', 'min', 'max']
         data = []
         dataset = self._dataverse + '.' + self._dataset
 
+        fields = ''
         cols = self.columns
         for col in cols:
             if list(col.values())[0] == 'int64':
                 key = list(col.keys())[0]
-                rows.append(key)
-                query = 'SELECT count(t.%s) cnt, ' \
-                        'min(t.%s) min, ' \
-                        'max(t.%s) max, ' \
-                        'avg(t.%s) mean ' \
-                        'FROM %s AS t;' % (key,key,key,key,dataset)
-                stats = self.send_request(query)[0]
-                min = stats['min']
-                max = stats['max']
-                mean = stats['mean']
-                cnt = stats['cnt']
-                query = 'SELECT VALUE sqrt(avg(square)) ' \
-                        'FROM (SELECT VALUE power(%s - t.%s, 2) ' \
-                                'FROM %s t) square;' % (mean, key, dataset)
-                std = self.send_request(query)[0]
-                row = [cnt,mean,std,min,max]
-                data.append(row)
-        res = pd.DataFrame(data, index=rows, columns=columns)
-        return res.transpose()
+                num_rows.append(key)
+                fields += 'count(t.%s) %s_count, ' \
+                        'min(t.%s) %s_min, ' \
+                        'max(t.%s) %s_max, ' \
+                        'avg(t.%s) %s_mean, ' % (key,key,key,key,key,key,key,key)
+            if list(col.values())[0] == 'string':
+                key = list(col.keys())[0]
+                str_rows.append(key)
+                fields += 'count(t.%s) %s_count, ' \
+                          'min(t.%s) %s_min, ' \
+                          'max(t.%s) %s_max, ' % (key, key, key, key, key, key)
+
+        query = 'SELECT %s FROM %s AS t;' % (fields[:-2], dataset)
+        stats = self.send_request(query)[0]
+
+        std_query = 'SELECT '
+        sqr_query = '(SELECT '
+        for key in num_rows:
+            attr_std = 'sqrt(avg(square.%s)) AS %s_std,' % (key, key)
+            attr_sqr = 'power(%s - t.%s, 2) AS %s,' % (stats[key+'_mean'], key, key)
+            sqr_query += attr_sqr
+            std_query += attr_std
+        std_query = std_query[:-1]
+        sqr_query = sqr_query[:-1]
+        std_query += ' FROM '
+        std_query += sqr_query
+        std_query += ' FROM %s t) square;' % dataset
+
+        stds = self.send_request(std_query)[0]
+
+        # append string attributes
+        # for key in str_rows:
+        #     min = stats[key+'_min']
+        #     max = stats[key+'_max']
+        #     mean = None
+        #     cnt = stats[key+'_count']
+        #     std = None
+        #     row = [cnt, mean, std, min, max]
+        #     data.append(row)
+        # # append numeric attributes
+        # for key in num_rows:
+        #     min = stats[key+'_min']
+        #     max = stats[key+'_max']
+        #     mean = stats[key+'_mean']
+        #     cnt = stats[key+'_count']
+        #     std = stds[key+'_std']
+        #     row = [cnt, mean, std, min, max]
+        #     data.append(row)
+
+        all_rows = str_rows+num_rows
+
+
+        for row in columns:
+            row_values = []
+            if row != 'std':
+                for key in str_rows:
+                    if key+'_'+row in stats:
+                        value = stats[key+'_'+row]
+                        row_values.append(value)
+                    else:
+                        row_values.append(None)
+                for key in num_rows:
+                    value = stats[key + '_' + row]
+                    row_values.append(value)
+            else:
+                for key in str_rows:
+                    row_values.append(None)
+                for key in num_rows:
+                    value = stds[key + '_' + row]
+                    row_values.append(value)
+            data.append(row_values)
+
+        # res = pd.DataFrame(data, index=all_rows, columns=columns)
+        res = pd.DataFrame(data, index=columns, columns=all_rows)
+        return res
+
     @staticmethod
     def send_request(query: str):
         host = 'http://localhost:19002/query/service'
