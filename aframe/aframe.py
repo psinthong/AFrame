@@ -279,35 +279,38 @@ class AFrame:
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
     def describe(self):
-        num_rows = []
-        str_rows = []
-        columns = ['count', 'mean', 'std', 'min', 'max']
+        num_cols = []
+        str_cols = []
+        numeric_types = ['int','int8','int16', 'int32', 'int64', 'double',
+                         'integer', 'smallint', 'tinyint', 'bigint', 'float']
+        index = ['count', 'mean', 'std', 'min', 'max']
         data = []
         dataset = self._dataverse + '.' + self._dataset
 
         fields = ''
         cols = self.columns
         for col in cols:
-            if list(col.values())[0] == 'int64':
+            if list(col.values())[0] in numeric_types:
                 key = list(col.keys())[0]
-                num_rows.append(key)
+                num_cols.append(key)
                 fields += 'count(t.%s) %s_count, ' \
-                        'min(t.%s) %s_min, ' \
-                        'max(t.%s) %s_max, ' \
-                        'avg(t.%s) %s_mean, ' % (key,key,key,key,key,key,key,key)
+                    'min(t.%s) %s_min, ' \
+                    'max(t.%s) %s_max, ' \
+                    'avg(t.%s) %s_mean, ' % (key,key,key,key,key,key,key,key)
             if list(col.values())[0] == 'string':
                 key = list(col.keys())[0]
-                str_rows.append(key)
+                str_cols.append(key)
                 fields += 'count(t.%s) %s_count, ' \
                           'min(t.%s) %s_min, ' \
                           'max(t.%s) %s_max, ' % (key, key, key, key, key, key)
 
         query = 'SELECT %s FROM %s AS t;' % (fields[:-2], dataset)
+        # contains min,max,cnt,avg results of all attributes
         stats = self.send_request(query)[0]
 
         std_query = 'SELECT '
         sqr_query = '(SELECT '
-        for key in num_rows:
+        for key in num_cols:
             attr_std = 'sqrt(avg(square.%s)) AS %s_std,' % (key, key)
             attr_sqr = 'power(%s - t.%s, 2) AS %s,' % (stats[key+'_mean'], key, key)
             sqr_query += attr_sqr
@@ -318,52 +321,33 @@ class AFrame:
         std_query += sqr_query
         std_query += ' FROM %s t) square;' % dataset
 
+        # contains standard deviation results of all numeric attributes
         stds = self.send_request(std_query)[0]
 
-        # append string attributes
-        # for key in str_rows:
-        #     min = stats[key+'_min']
-        #     max = stats[key+'_max']
-        #     mean = None
-        #     cnt = stats[key+'_count']
-        #     std = None
-        #     row = [cnt, mean, std, min, max]
-        #     data.append(row)
-        # # append numeric attributes
-        # for key in num_rows:
-        #     min = stats[key+'_min']
-        #     max = stats[key+'_max']
-        #     mean = stats[key+'_mean']
-        #     cnt = stats[key+'_count']
-        #     std = stds[key+'_std']
-        #     row = [cnt, mean, std, min, max]
-        #     data.append(row)
+        all_cols = str_cols+num_cols
 
-        all_rows = str_rows+num_rows
-
-
-        for row in columns:
+        # iterate over each row and add both numeric and string values from the json result
+        for ind in index:
             row_values = []
-            if row != 'std':
-                for key in str_rows:
-                    if key+'_'+row in stats:
-                        value = stats[key+'_'+row]
+            if ind != 'std':
+                for key in str_cols:
+                    if key+'_'+ind in stats:    # check for existing key (cannot get avg() of string attributes )
+                        value = stats[key+'_'+ind]  # e.g. stats[unique1_min]
                         row_values.append(value)
                     else:
                         row_values.append(None)
-                for key in num_rows:
-                    value = stats[key + '_' + row]
+                for key in num_cols:
+                    value = stats[key + '_' + ind]
                     row_values.append(value)
             else:
-                for key in str_rows:
+                for i in range(len(str_cols)):  # cannot get std() of string attributes
                     row_values.append(None)
-                for key in num_rows:
-                    value = stds[key + '_' + row]
+                for key in num_cols:
+                    value = stds[key + '_' + ind]
                     row_values.append(value)
             data.append(row_values)
 
-        # res = pd.DataFrame(data, index=all_rows, columns=columns)
-        res = pd.DataFrame(data, index=columns, columns=all_rows)
+        res = pd.DataFrame(data, index=index, columns=all_cols)
         return res
 
     @staticmethod
