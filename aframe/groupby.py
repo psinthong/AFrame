@@ -46,9 +46,13 @@ class AFrameGroupBy:
         return df
 
     def count(self):
-        new_query = 'SELECT VALUE count(*) FROM (%s) t;' % self.query[:-1]
-        result = af.AFrame.send_request(new_query)[0]
-        return result
+        columns = [self._by, 'count']
+        dataset = self._dataverse + '.' + self._dataset
+        new_query = 'SELECT grp_id AS %s, array_count(grps) AS count FROM %s t ' \
+                    'GROUP BY t.%s AS grp_id GROUP AS grps(t AS grp);' % (self._by, dataset, self._by)
+        # new_query = 'SELECT VALUE count(*) FROM (%s) t;' % self.query[:-1]
+        results = pd.DataFrame(af.AFrame.send_request(new_query))
+        return results
 
     # def agg(self, func):
     #     dataset = self._dataverse + '.' + self._dataset

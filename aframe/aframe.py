@@ -5,7 +5,7 @@ import urllib.request
 import pandas.io.json as json
 from aframe.aframeObj import AFrameObj
 from aframe.groupby import AFrameGroupBy
-
+from aframe.missing import notna
 
 class AFrame:
 
@@ -57,7 +57,7 @@ class AFrame:
 
     def __str__(self):
         if self._columns:
-            txt = 'AsterixDB DataFrame with the following known columns: \n\t'
+            txt = 'AsterixDB DataFrame with the following pre-defined columns: \n\t'
             return txt + str(self._columns)
         else:
             return 'Empty AsterixDB DataFrame'
@@ -153,6 +153,10 @@ class AFrame:
     def toAFrameObj(self):
         if self.query:
             return AFrameObj(self._dataverse, self._dataset, None, self.query)
+
+    def notna(self):
+        return notna(self)
+
 
     @staticmethod
     def get_column_count(other):

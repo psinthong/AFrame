@@ -2,6 +2,7 @@ import aframe as af
 import pandas as pd
 import pandas.io.json as json
 import numpy as np
+from aframe.missing import notna
 
 class AFrameObj:
     def __init__(self, dataverse, dataset, schema, query=None):
@@ -52,6 +53,9 @@ class AFrameObj:
         if '_uuid' in result.columns:
             result.drop('_uuid', axis=1, inplace=True)
         return result
+
+    def toPandas(self):
+        return self.collect()
 
     def head(self, num=5):
         new_query = self.query[:-1]+' LIMIT %d;' % num
@@ -267,10 +271,10 @@ class AFrameObj:
             raise ValueError('Must provide a string name for the appended column.')
         if not isinstance(col, AFrameObj):
             raise ValueError('A column must be of type \'AFrameObj\'')
-        cnt = af.AFrame.get_column_count(col)
-        if self.get_count() != cnt:
-            # print(self.get_count(), cnt)
-            raise ValueError('The appended column must have the same size as the original AFrame.')
+        # cnt = af.AFrame.get_column_count(col)
+        # if self.get_count() != cnt:
+        #     # print(self.get_count(), cnt)
+        #     raise ValueError('The appended column must have the same size as the original AFrame.')
         dataset = self._dataverse + '.' + self._dataset
         fields = ''
         if isinstance(self.schema, list):
@@ -279,10 +283,10 @@ class AFrameObj:
                     fields += 't.'+self.schema[i]
                 else:
                     fields += ', t.' + self.schema[i]
-            new_query = 'SELECT %s, %s %s FROM %s t;' % (fields, col.schema, name, dataset)
+            new_query = 'SELECT %s, %s %s FROM (%s) t;' % (fields, col.schema, name, self.query[:-1])
             self.schema.append(name)
             return AFrameObj(self._dataverse, self._dataset, self.schema, new_query)
-        new_query = 'SELECT t.*, %s %s FROM %s t;' % (col.schema, name, dataset)
+        new_query = 'SELECT t.*, %s %s FROM (%s) t;' % (col.schema, name, self.query[:-1])
         schema = col.schema
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
@@ -311,3 +315,6 @@ class AFrameObj:
                 new_query += 'ORDER BY %s DESC;' % by_list
         schema = 'ORDER BY %s' % by
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+    def notna(self):
+        return notna(self)
