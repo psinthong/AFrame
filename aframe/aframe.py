@@ -6,6 +6,7 @@ import pandas.io.json as json
 from aframe.aframeObj import AFrameObj
 from aframe.groupby import AFrameGroupBy
 from aframe.missing import notna
+from aframe.nestedAFrame import NestedAFrame
 
 class AFrame:
 
@@ -74,6 +75,9 @@ class AFrame:
         if '_uuid' in df.columns:
             df.drop('_uuid', axis=1, inplace=True)
         return df
+
+    def normalize(self):
+        return NestedAFrame(self._dataverse, self._dataset, self.columns, self.query)
 
     @property
     def columns(self):
@@ -353,6 +357,7 @@ class AFrame:
 
         res = pd.DataFrame(data, index=index, columns=all_cols)
         return res
+
 
     @staticmethod
     def send_request(query: str):
