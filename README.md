@@ -8,3 +8,4 @@ Python data exploration library that integrates a Pandas-like user experience wi
 * [Pip](https://pip.pypa.io/en/stable/)
 * Java >= 1.8
 * [AsterixDB](https://github.com/apache/asterixdb/)
+.
