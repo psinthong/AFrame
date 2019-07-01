@@ -404,9 +404,13 @@ class AFrame:
         res = pd.DataFrame(data, index=index, columns=all_cols)
         return res
 
-    def rolling(self,window, on):
-        if isinstance(window, Window):
-            return OrderedAFrame(self._dataverse, self._dataset,  self._columns,window, on, None)
+    def rolling(self, window=None, on=None):
+        if window is not None and not isinstance(window, Window):
+            raise ValueError('window object must be of type Window')
+        elif on is None and window is None:
+            raise ValueError('Must provide at least \'on\' or \'window\' value')
+        else:
+            return OrderedAFrame(self._dataverse, self._dataset, self._columns, on, self.query, window)
 
     @staticmethod
     def send_request(query: str):
@@ -477,7 +481,7 @@ class NestedAFrame(AFrame):
 
 
 class OrderedAFrame(AFrame):
-    def __init__(self,dataverse, dataset, columns, window, on, query):
+    def __init__(self,dataverse, dataset, columns, on, query, window=None):
         AFrame.__init__(self, dataverse, dataset)
         self._window = window
         self._columns = columns
@@ -489,12 +493,15 @@ class OrderedAFrame(AFrame):
 
     def get_window(self):
         over = ''
-        if self._window.part() is not None:
-            over += 'PARTITION BY %s ' % self._window._part
-        if self._window.ord() is not None:
-            over += 'ORDER BY %s ' % self._window._ord
-        if self._window.rows() is not None:
-            over += self._window._rows
+        if self._window is not None:
+            if self._window.part() is not None:
+                over += 'PARTITION BY %s ' % self._window._part
+            if self._window.ord() is not None:
+                over += 'ORDER BY %s ' % self._window._ord
+            if self._window.rows() is not None:
+                over += self._window._rows
+        else:
+            over += 'ORDER BY %s ' % self.on
         return 'OVER(%s)' % over
 
     def sum(self):
@@ -503,28 +510,28 @@ class OrderedAFrame(AFrame):
             dataset = self._dataverse + '.' + self._dataset
             col = 'SUM(t.%s) %s' % (self.on, over)
             query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
-            return OrderedAFrame(self._dataverse, self._dataset, col, self._window, self.on, query)
+            return OrderedAFrame(self._dataverse, self._dataset, col, self.on, query, self._window)
 
     def row_number(self):
         dataset = self._dataverse + '.' + self._dataset
         over = self.get_window()
         columns = 'ROW_NUMBER() %s' % over
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def cume_dist(self):
         dataset = self._dataverse + '.' + self._dataset
         over = self.get_window()
         columns = 'CUME_DIST() %s' % over
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def dense_rank(self):
         dataset = self._dataverse + '.' + self._dataset
         over = self.get_window()
         columns = 'DENSE_RANK() %s' % over
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def first_value(self, expr, ignore_null=False):
         if not isinstance(expr,str):
@@ -535,7 +542,7 @@ class OrderedAFrame(AFrame):
         if ignore_null:
             columns = 'FIRST_VALUE(%s) IGNORE NULLS %s' % (expr, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def lag(self, offset, expr, ignore_null=False):
         if not isinstance(expr,str):
@@ -548,7 +555,7 @@ class OrderedAFrame(AFrame):
         if ignore_null:
             columns = 'LAG(%s, %d) IGNORE NULLS %s' % (expr, offset, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def last_value(self, expr, ignore_null=False):
         if not isinstance(expr,str):
@@ -559,7 +566,7 @@ class OrderedAFrame(AFrame):
         if ignore_null:
             columns = 'LAST_VALUE(%s) IGNORE NULLS %s' % (expr, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def lead(self, offset, expr, ignore_null=False):
         if not isinstance(expr,str):
@@ -572,7 +579,7 @@ class OrderedAFrame(AFrame):
         if ignore_null:
             columns = 'LEAD(%s,%d) IGNORE NULLS %s' % (expr, offset, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def nth_value(self, offset, expr, ignore_null=False):
         if not isinstance(expr,str):
@@ -585,7 +592,7 @@ class OrderedAFrame(AFrame):
         if ignore_null:
             columns = 'NTH_VALUE(%s,%d) IGNORE NULLS %s' % (expr, offset, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def ntile(self, num_tiles):
         if not isinstance(num_tiles, int):
@@ -594,21 +601,21 @@ class OrderedAFrame(AFrame):
         over = self.get_window()
         columns = 'NTILE(%s) %s' % (num_tiles, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def percent_rank(self):
         dataset = self._dataverse + '.' + self._dataset
         over = self.get_window()
         columns = 'PERCENT_RANK() %s' % over
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def rank(self):
         dataset = self._dataverse + '.' + self._dataset
         over = self.get_window()
         columns = 'RANK() %s' % over
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def ratio_to_report(self, expr):
         if not isinstance(expr,str):
@@ -617,14 +624,14 @@ class OrderedAFrame(AFrame):
         over = self.get_window()
         columns = 'RATIO_TO_REPORT(%s) %s' % (expr, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def row_number(self):
         dataset = self._dataverse + '.' + self._dataset
         over = self.get_window()
         columns = 'ROW_NUMBER() %s' % over
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
     def collect(self):
         results = AFrame.send_request(self.query)
