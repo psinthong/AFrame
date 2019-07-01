@@ -626,13 +626,6 @@ class OrderedAFrame(AFrame):
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
         return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
 
-    def row_number(self):
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'ROW_NUMBER() %s' % over
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
-
     def collect(self):
         results = AFrame.send_request(self.query)
         json_str = json.dumps(results)
