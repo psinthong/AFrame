@@ -4,13 +4,15 @@ import pandas.io.json as json
 import numpy as np
 from aframe.missing import notna
 
+
 class AFrameObj:
-    def __init__(self, dataverse, dataset, schema, query=None):
+    def __init__(self, dataverse, dataset, schema, query=None, predicate=None):
         self._schema = schema
         self._query = query
         self._data = None
         self._dataverse = dataverse
         self._dataset = dataset
+        self._predicate = predicate
 
     def __str__(self):
         return 'Column: '+str(self._schema)
@@ -21,9 +23,19 @@ class AFrameObj:
             raise NotImplemented
 
         if isinstance(key, str):
-            if self._schema is not None:
-                query = 'SELECT VALUE t.%s FROM %s t WHERE %s;' %(key, dataset, self._schema)
-                return AFrameObj(self._dataverse, self._dataset, key, query)
+            # if self._schema is not None:
+            #     query = 'SELECT VALUE t.%s FROM %s t WHERE %s;' %(key, dataset, self._schema)
+            #     return AFrameObj(self._dataverse, self._dataset, key, query)
+            predicate = None
+            if isinstance(key, str):
+                if self._schema is not None:
+                    predicate = self.schema
+                    new_query = 'SELECT VALUE t.%s FROM %s t WHERE %s;' % (key, dataset, self._schema)
+                elif self._query is not None:
+                    new_query = 'SELECT VALUE t.%s FROM (%s) t;' % (key, self.query[:-1])
+                else:
+                    new_query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
+                return AFrameObj(self._dataverse, self._dataset, key, new_query,predicate)
             else:
                 raise NotImplemented
 
@@ -33,9 +45,18 @@ class AFrameObj:
                 if i > 0:
                     fields += ', '
                 fields += 't.%s' % key[i]
+            # if self._schema is not None:
+            #     query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
+            #     return AFrameObj(self._dataverse, self._dataset, key, query)
+            predicate = None
             if self._schema is not None:
-                query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
-                return AFrameObj(self._dataverse, self._dataset, key, query)
+                predicate = self.schema
+                new_query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
+            elif self._query is not None:
+                new_query = 'SELECT %s FROM (%s) t;' % (fields, self.query[:-1])
+            else:
+                new_query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
+            return AFrameObj(self._dataverse, self._dataset, key, new_query,predicate)
 
 
     @property
@@ -223,7 +244,17 @@ class AFrameObj:
         # schema = func + '(' + self.schema + args_str + ')'
         schema = '%s(t.%s%s)' % (func, self.schema, args_str)
         new_query = 'SELECT VALUE %s(t.%s%s) FROM %s t;' % (func, self.schema, args_str, dataset)
-        return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+
+        predicate = None
+        if self._predicate is not None:
+            predicate = self._predicate
+            new_query = 'SELECT VALUE %s(t.%s%s) FROM %s t WHERE %s;' % (func, self.schema, args_str, dataset, self._predicate)
+        # elif self._query is not None:
+        #     new_query = 'SELECT %s FROM (%s) t;' % (fields, self.query[:-1])
+        # else:
+        #     new_query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
+
+        return AFrameObj(self._dataverse, self._dataset, schema, new_query, predicate)
 
     def persist(self, name=None, dataverse=None):
         if self.schema is None:
@@ -265,6 +296,28 @@ class AFrameObj:
                 '\n create type _Temp.TempType if not exists as open{ _uuid: uuid};'
         result = af.AFrame.send(query)
         return result
+
+    def __setitem__(self, key, value):
+        if not isinstance(key, str):
+            raise ValueError('Must provide a string name for the appended column.')
+        if not isinstance(value, AFrameObj):
+            raise ValueError('A column must be of type \'AFrameObj\'')
+        dataset = self._dataverse + '.' + self._dataset
+        fields = ''
+        if isinstance(self.schema, list):
+            for i in range(len(self.schema)):
+                if i == 0:
+                    fields += 't.' + self.schema[i]
+                else:
+                    fields += ', t.' + self.schema[i]
+            new_query = 'SELECT %s, %s %s FROM (%s) t;' % (fields, value.schema, key, self.query[:-1])
+            self.schema.append(key)
+            self._query = new_query
+        else:
+            new_query = 'SELECT t.*, %s %s FROM (%s) t;' % (value.schema, key, self.query[:-1])
+            schema = value.schema
+            self._schema = schema
+            self._query = new_query
 
     def withColumn(self, name, col):
         if not isinstance(name, str):

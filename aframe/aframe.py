@@ -6,11 +6,13 @@ import pandas.io.json as json
 from aframe.aframeObj import AFrameObj
 from aframe.groupby import AFrameGroupBy
 from aframe.missing import notna
-from aframe.nestedAFrame import NestedAFrame
+from pandas.io.json import json_normalize
+from aframe.window import Window
+
 
 class AFrame:
 
-    def __init__(self, dataverse, dataset, columns=None, path=None):
+    def __init__(self, dataverse, dataset, columns=None, query=None):
         # if dataset doesn't exist -> create it
         # else load in its definition
         self._dataverse = dataverse
@@ -21,7 +23,7 @@ class AFrame:
         self._info = dict()
         #initialize
         self.get_dataset(dataset)
-        self.query = None
+        self.query = query
 
     def __repr__(self):
         return self.__str__()
@@ -29,11 +31,18 @@ class AFrame:
     def __getitem__(self, key):
         dataset = self._dataverse + '.' + self._dataset
         if isinstance(key, AFrameObj):
-            new_query = 'SELECT VALUE t FROM %s t WHERE %s;' %(dataset, key.schema)
+            if self.query is None:
+                new_query = 'SELECT VALUE t FROM %s t WHERE %s;' %(dataset, key.schema)
+            else:
+                new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, self.query[:-1], key.schema)
             return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
 
+
         if isinstance(key, str):
-            query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
+            if self.query is None:
+                query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
+            else:
+                query = 'SELECT VALUE t.%s FROM (%s) t;' % (key, self.query[:-1])
             return AFrameObj(self._dataverse, self._dataset, key, query)
 
         if isinstance(key, (np.ndarray, list)):
@@ -42,8 +51,19 @@ class AFrame:
                 if i > 0:
                     fields += ', '
                 fields += 't.%s' % key[i]
-            query = 'SELECT %s FROM %s t;' % (fields, dataset)
+            if self.query is None:
+                query = 'SELECT %s FROM %s t;' % (fields, dataset)
+            else:
+                query = 'SELECT %s FROM (%s) t;' % (fields, self.query[:-1])
             return AFrameObj(self._dataverse, self._dataset, key, query)
+
+    def __setitem__(self, key, value):
+        dataset = self._dataverse + '.' + self._dataset
+        if not isinstance(key, str):
+            raise ValueError('Must provide a string name for the appended column.')
+        if isinstance(value, OrderedAFrame):
+            new_query = 'SELECT t.*, %s %s FROM %s t;' % (value._columns, key, dataset)
+            self.query = new_query
 
     def __len__(self):
         result = self.get_count()
@@ -76,7 +96,7 @@ class AFrame:
             df.drop('_uuid', axis=1, inplace=True)
         return df
 
-    def normalize(self):
+    def flatten(self):
         return NestedAFrame(self._dataverse, self._dataset, self.columns, self.query)
 
     @property
@@ -91,9 +111,15 @@ class AFrame:
         else:
             dataset = self._dataverse+'.'+self._dataset
             if sample > 0:
-                query = 'SELECT VALUE t FROM %s t LIMIT %d;' % (dataset, sample)
+                if self.query is None:
+                    query = 'SELECT VALUE t FROM %s t LIMIT %d;' % (dataset, sample)
+                else:
+                    query = 'SELECT VALUE t FROM (%s) t LIMIT %d;' % (dataset, self.query[:-1])
             else:
-                query = 'SELECT VALUE t FROM %s t;' % dataset
+                if self.query is None:
+                    query = 'SELECT VALUE t FROM %s t;' % dataset
+                else:
+                    query = 'SELECT VALUE t FROM (%s) t;' % self.query[:-1]
             result = self.send_request(query)
             data = json.read_json(json.dumps(result))
             df = pd.DataFrame(data)
@@ -119,9 +145,22 @@ class AFrame:
             return flatten_results
         return result_lst
 
-    def unnest(self, col, appended=False, name=None):
-        if not isinstance(col, AFrameObj):
-            raise ValueError('A column must be of type \'AFrameObj\'')
+    def unnest(self, col, meta=None, appended=False, name=None):
+        dataset = self._dataverse + '.' + self._dataset
+        if isinstance(col, str):
+            schema = 'unnest(t.%s)' % col
+            new_query = 'SELECT VALUE %s FROM %s t unnest t.%s %s;' % (col, dataset, col, col)
+            if isinstance(meta, (np.ndarray, list)):
+                fields = ''
+                for i in range(len(meta)):
+                    if i > 0:
+                        fields += ', '
+                    fields += 't.%s' % meta[i]
+                schema = '%s, t.%s' % (fields, col)
+                new_query = 'SELECT %s, %s FROM %s t unnest t.%s %s;' % (fields, col, dataset, col, col)
+            return AFrameObj(self._dataverse, self._dataset, schema, new_query)
+        # if not isinstance(col, AFrameObj):
+        #     raise ValueError('A column must be of type \'AFrameObj\'')
         if isinstance(col, AFrameObj) and not appended:
             schema = 'unnest(%s)' % col.schema
             new_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % col.query[:-1]
@@ -129,7 +168,7 @@ class AFrame:
         elif isinstance(col, AFrameObj) and appended:
             if not name:
                 raise ValueError('Must provide a string name for the appended column.')
-            dataset = self._dataverse + '.' + self._dataset
+
             new_query = 'SELECT u %s, t.* FROM %s t unnest t.%s u;' % (name, dataset, col.schema)
             schema = col.schema
             return AFrameObj(self._dataverse, self._dataset, schema, new_query)
@@ -139,10 +178,10 @@ class AFrame:
             raise ValueError('Must provide a string name for the appended column.')
         if not isinstance(col, AFrameObj):
             raise ValueError('A column must be of type \'AFrameObj\'')
-        cnt = self.get_column_count(col)
-        if self.get_count() != cnt:
-            # print(self.get_count(), cnt)
-            raise ValueError('The appended column must have the same size as the original AFrame.')
+        # cnt = self.get_column_count(col)
+        # if self.get_count() != cnt:
+        #     # print(self.get_count(), cnt)
+        #     raise ValueError('The appended column must have the same size as the original AFrame.')
         dataset = self._dataverse + '.' + self._dataset
         # new_query = 'select t.*, t.%s %s from %s t;' % (col.schema, name, dataset)
         new_query = 'SELECT t.*, %s %s FROM %s t;' % (col.schema, name, dataset)
@@ -155,8 +194,8 @@ class AFrame:
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
     def toAFrameObj(self):
-        if self.query:
-            return AFrameObj(self._dataverse, self._dataset, None, self.query)
+        if self.query is not None:
+            return AFrameObj(self._dataverse, self._dataset, None, self.query[:-1])
 
     def notna(self):
         return notna(self)
@@ -227,14 +266,18 @@ class AFrame:
                 raise NotImplementedError('Join type specified is not yet available')
 
             l_dataset = self._dataverse + '.' + self._dataset
+            if self.query is not None:
+                l_dataset = '(%s)' % self.query[:-1]
             r_dataset = other._dataverse + '.' + other._dataset
+            if other.query is not None:
+                r_dataset = '(%s)' % other.query[:-1]
 
             if left_on != right_on:
                 query = 'SELECT VALUE object_merge(%s,%s) '% (lsuffix, rsuffix) + 'FROM %s %s ' %(l_dataset, lsuffix) +\
-                        join_types[how] + ' %s %s on %s.%s=%s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+                        join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             else:
                 query = 'SELECT %s,%s '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
-                        join_types[how] + ' %s %s on %s.%s=%s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+                        join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
                      ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
 
@@ -261,7 +304,10 @@ class AFrame:
                 else:
                     args_str += ', %s = %s' % (key, str(value))
         schema = func + '(t' + args_str + ')'
-        new_query = 'SELECT VALUE %s(t%s) FROM %s t;' % (func, args_str, dataset)
+        if self.query is None:
+            new_query = 'SELECT VALUE %s(t%s) FROM %s t;' % (func, args_str, dataset)
+        else:
+            new_query = 'SELECT VALUE %s(t%s) FROM %s t;' % (func, args_str, self.query[:-1])
         return AFrameObj(self._dataverse, self._dataset, schema, new_query)
 
     def sort_values(self, by, ascending=True):
@@ -358,6 +404,9 @@ class AFrame:
         res = pd.DataFrame(data, index=index, columns=all_cols)
         return res
 
+    def rolling(self,window, on):
+        if isinstance(window, Window):
+            return OrderedAFrame(self._dataverse, self._dataset,  self._columns,window, on, None)
 
     @staticmethod
     def send_request(query: str):
@@ -397,3 +446,191 @@ class AFrame:
         with urllib.request.urlopen(host, data) as handler:
             ret = handler.read()
             return ret
+
+
+class NestedAFrame(AFrame):
+    def __init__(self, dataverse, dataset, schema, query=None):
+        self._schema = schema
+        self._query = query
+        self._data = None
+        self._dataverse = dataverse
+        self._dataset = dataset
+        AFrame.__init__(self,dataverse,dataset)
+
+    def head(self, sample=5):
+        dataset = self._dataverse + '.' + self._dataset
+        if self._query is not None:
+            new_query = self._query[:-1]+' LIMIT %d;' % sample
+            results = AFrame.send_request(new_query)
+            norm_result = json_normalize(results)
+        else:
+            self._query = 'SELECT VALUE t FROM %s t;' % dataset
+            new_query = self._query[:-1] + ' LIMIT %d;' % sample
+            results = AFrame.send_request(new_query)
+            norm_result = json_normalize(results)
+        norm_cols = norm_result.columns.str.split('.', expand=True).values
+        norm_result.columns = pd.MultiIndex.from_tuples([('', x[0]) if pd.isnull(x[1]) else x for x in norm_cols])
+
+        if '_uuid' in norm_result.columns:
+            norm_result.drop('_uuid', axis=1, inplace=True)
+        return norm_result
+
+
+class OrderedAFrame(AFrame):
+    def __init__(self,dataverse, dataset, columns, window, on, query):
+        AFrame.__init__(self, dataverse, dataset)
+        self._window = window
+        self._columns = columns
+        self._data = None
+        self._dataverse = dataverse
+        self._dataset = dataset
+        self.on = on
+        self.query = query
+
+    def get_window(self):
+        over = ''
+        if self._window.part() is not None:
+            over += 'PARTITION BY %s ' % self._window._part
+        if self._window.ord() is not None:
+            over += 'ORDER BY %s ' % self._window._ord
+        if self._window.rows() is not None:
+            over += self._window._rows
+        return 'OVER(%s)' % over
+
+    def sum(self):
+        over = self.get_window()
+        if isinstance(self.on, str):
+            dataset = self._dataverse + '.' + self._dataset
+            col = 'SUM(t.%s) %s' % (self.on, over)
+            query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
+            return OrderedAFrame(self._dataverse, self._dataset, col, self._window, self.on, query)
+
+    def row_number(self):
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'ROW_NUMBER() %s' % over
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def cume_dist(self):
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'CUME_DIST() %s' % over
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def dense_rank(self):
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'DENSE_RANK() %s' % over
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def first_value(self, expr, ignore_null=False):
+        if not isinstance(expr,str):
+            raise ValueError('expr for first_value must be string')
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'FIRST_VALUE(%s) %s' % (expr, over)
+        if ignore_null:
+            columns = 'FIRST_VALUE(%s) IGNORE NULLS %s' % (expr, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def lag(self, offset, expr, ignore_null=False):
+        if not isinstance(expr,str):
+            raise ValueError('expr for lag must be string')
+        if not isinstance(offset,int):
+            raise ValueError('offset for lag must be an integer')
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'LAG(%s, %d) %s' % (expr, offset, over)
+        if ignore_null:
+            columns = 'LAG(%s, %d) IGNORE NULLS %s' % (expr, offset, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def last_value(self, expr, ignore_null=False):
+        if not isinstance(expr,str):
+            raise ValueError('expr for last_value must be string')
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'LAST_VALUE(%s) %s' % (expr, over)
+        if ignore_null:
+            columns = 'LAST_VALUE(%s) IGNORE NULLS %s' % (expr, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def lead(self, offset, expr, ignore_null=False):
+        if not isinstance(expr,str):
+            raise ValueError('expr for lead must be string')
+        if not isinstance(offset,int):
+            raise ValueError('offset for lead must be an integer')
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'LEAD(%s, %d) %s' % (expr, offset, over)
+        if ignore_null:
+            columns = 'LEAD(%s,%d) IGNORE NULLS %s' % (expr, offset, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def nth_value(self, offset, expr, ignore_null=False):
+        if not isinstance(expr,str):
+            raise ValueError('expr for nth_value must be string')
+        if not isinstance(offset,int):
+            raise ValueError('offset for nth_value must be an integer')
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'NTH_VALUE(%s, %d) %s' % (expr, offset, over)
+        if ignore_null:
+            columns = 'NTH_VALUE(%s,%d) IGNORE NULLS %s' % (expr, offset, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def ntile(self, num_tiles):
+        if not isinstance(num_tiles, int):
+            raise ValueError('expr for ntile must be string')
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'NTILE(%s) %s' % (num_tiles, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def percent_rank(self):
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'PERCENT_RANK() %s' % over
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def rank(self):
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'RANK() %s' % over
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def ratio_to_report(self, expr):
+        if not isinstance(expr,str):
+            raise ValueError('expr for ratio_to_report must be string')
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'RATIO_TO_REPORT(%s) %s' % (expr, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def row_number(self):
+        dataset = self._dataverse + '.' + self._dataset
+        over = self.get_window()
+        columns = 'ROW_NUMBER() %s' % over
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self._window, self.on, query)
+
+    def collect(self):
+        results = AFrame.send_request(self.query)
+        json_str = json.dumps(results)
+        result = pd.DataFrame(data=json.read_json(json_str))
+        if '_uuid' in result.columns:
+            result.drop('_uuid', axis=1, inplace=True)
+        return result
+
