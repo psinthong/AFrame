@@ -91,11 +91,14 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(df.loc[4].equals(row4))
 
     @patch.object(AFrame, 'get_dataset')
-    def testCollectQuery(self, mock_init):
+    def testCollectQuery_NormalCase(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         query = af.collect_query()
         self.assertEqual(query, 'SELECT VALUE t FROM test_dataverse.test_dataset t;')
 
+
+    @patch.object(AFrame, 'get_dataset')
+    def testCollectQuery_ErrorCase(self, mock_init):
         af1 = AFrame('test_dataverse', None)
         self.assertRaises(ValueError, af1.collect_query)
         
@@ -237,7 +240,31 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
 
-    #def testCreateTmpDataverse(self):
+    def testCreateTmpDataverseNone(self):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')       
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                         {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
+                         {"attr1": 5, "attr2": "str5"}]
+        AFrame.send = MagicMock(return_value = json_response)
+
+        actual = aframe_obj.create_tmp_dataverse(None)
+        query = 'create dataverse _Temp if not exists; ' \
+                '\n create type _Temp.TempType if not exists as open{ _uuid: uuid};'
+        AFrame.send.assert_called_once_with(query)
+        self.assertEqual(json_response, actual)
+
+    def testCreateTmpDataverseNotNone(self):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')       
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                         {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
+                         {"attr1": 5, "attr2": "str5"}]
+        AFrame.send = MagicMock(return_value = json_response)
+
+        actual = aframe_obj.create_tmp_dataverse('id')
+        query = 'create dataverse %s if not exists; ' \
+                    '\n create type %s.TempType if not exists as open{ _uuid: uuid};' % ('id', 'id')
+        AFrame.send.assert_called_once_with(query)
+        self.assertEqual(json_response, actual)
 
     def testPersistErrorCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -248,69 +275,132 @@ class TestBasicFunction(unittest.TestCase):
         with self.assertRaises(ValueError):
             aframe_obj_error.persist('id', None)
 
-##    def testPersistNormal(self):
-##        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
-##        expected = 
-
-            
-
-    '''@patch.object(, 'get_dataset')
-    def testAttachRowId(self, mock_init):
-        af = AFrame('test_dataverse', 'test_dataset')'''
-        
-        
-    '''@patch('aframe.AFrame.get_dataset')
-    def testSimpleMap(self, mock_init):
-        json_response = [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
-                        {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
-                        {"attr1":5, "attr2":"str5"}, {"attr1":6, "attr2":"str6"},
-                        {"attr1":7, "attr2":"str7"}, {"attr1":8, "attr2":"str8"},
-                        {"attr1":9, "attr2":"str9"}, {"attr1":10, "attr2":"str10"}]
-        
-        af = AFrame('test_dataverse', 'test_dataset')
-        
-        af.send_request = MagicMock(return_value = json_response)
-
-        actual1 = af['name']
-        af.send_request.assert_called_once_with('SELECT VALUE t.name FROM test_dataverse.test_dataset t;')
-        
-        acrual2 = actual1.map('length')
-        
-
-        af.send_request.assert_called_once_with('SELECT VALUE length(t.name) FROM test_dataverse.test_dataset t;')
-        self.assertEqual(len(actual), 10)
-        row0 = pd.Series([1, 'str1'], index=['attr1', 'attr2'])
-        row1 = pd.Series([2, 'str2'], index=['attr1', 'attr2'])
-        row2 = pd.Series([3, 'str3'], index=['attr1', 'attr2'])
-        row3 = pd.Series([4, 'str4'], index=['attr1', 'attr2'])
-        row4 = pd.Series([5, 'str5'], index=['attr1', 'attr2'])
-        row5 = pd.Series([6, 'str6'], index=['attr1', 'attr2'])
-        row6 = pd.Series([7, 'str7'], index=['attr1', 'attr2'])
-        row7 = pd.Series([8, 'str8'], index=['attr1', 'attr2'])
-        row8 = pd.Series([9, 'str9'], index=['attr1', 'attr2'])
-        row0 = pd.Series([10, 'str10'], index=['attr1', 'attr2'])
-        self.assertTrue(actual.iloc[0].equals(row0))
-        self.assertTrue(actual.iloc[1].equals(row1))
-        self.assertTrue(actual.iloc[2].equals(row2))
-        self.assertTrue(actual.iloc[3].equals(row3))
-        self.assertTrue(actual.iloc[4].equals(row4))
-        self.assertTrue(actual.iloc[5].equals(row5))
-        self.assertTrue(actual.iloc[6].equals(row6))
-        self.assertTrue(actual.iloc[7].equals(row7))
-        self.assertTrue(actual.iloc[8].equals(row8))
-        self.assertTrue(actual.iloc[9].equals(row9))
-    
     @patch.object(AFrame, 'get_dataset')
-    def testSimpleCollect(self, mock_init):
+    def testPersistNormalWithDataverse(self, mock_init):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+        expected = AFrame('test_dataverse', 'test_dataset')
+
         json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
                          {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
                          {"attr1": 5, "attr2": "str5"}]
-        af = AFrame('test_dataverse', 'test_dataset')
-        af.send_request = MagicMock(return_value = json_response)
+        AFrameObj.create_tmp_dataverse = MagicMock(return_value = json_response)
+        AFrame.send = MagicMock(return_value = json_response)
+        new_q = 'create dataset %s.%s(TempType) primary key _uuid autogenerated;' % ('test_dataverse', 'test_dataset')
+        new_q += '\n insert into %s.%s select value ((%s));' % ('test_dataverse', 'test_dataset', aframe_obj.query[:-1])
+          
+        actual = aframe_obj.persist('test_dataset', 'test_dataverse')
+        AFrameObj.create_tmp_dataverse.assert_called_once_with('test_dataverse')
+        AFrame.send.assert_called_once_with(new_q)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        
+    @patch.object(AFrame, 'get_dataset')
+    def testPersistNormalNoDataverse(self, mock_init):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+        expected = AFrame('_Temp', 'test_dataset')
 
-        actual = af.c'''
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                         {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
+                         {"attr1": 5, "attr2": "str5"}]
+        AFrameObj.create_tmp_dataverse = MagicMock(return_value = json_response)
+        AFrame.send = MagicMock(return_value = json_response)
+        new_q = 'create dataset _Temp.%s(TempType) primary key _uuid autogenerated;' % 'test_dataset'
+        new_q += '\n insert into _Temp.%s select value ((%s));' % ('test_dataset', aframe_obj.query[:-1])
+
+        actual = aframe_obj.persist('test_dataset', None)
+        AFrameObj.create_tmp_dataverse.assert_called_once_with(None)
+        AFrame.send.assert_called_once_with(new_q)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+
+    @patch.object(AFrame, 'get_dataset')
+    def testDrop(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+
+        expected = []
+        AFrame.send = MagicMock(return_value = expected)
         
+        actual = AFrame.drop(af)
+        query = 'DROP DATASET %s.%s;' % ('test_dataverse', 'test_dataset')
+        AFrame.send.assert_called_once_with(query)
+        self.assertEqual(expected, actual)
+
+    def testMap_funcNotStr(self):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+        with self.assertRaises(TypeError):
+            aframe_obj.map(None)
+
+    def testMap_normalCase_NoPredicate(self):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+        aframe_obj._predicate = None
+
+        func = 'len'
+        schema = '%s(t.%s%s)' % (func, aframe_obj.schema, '')
+        dataset = aframe_obj._dataverse + '.' + aframe_obj._dataset
+        new_query = 'SELECT VALUE %s(t.%s%s) FROM %s t;' % (func, aframe_obj.schema, '', dataset)
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, new_query)
+        expected._predicate = None
+
+        actual = aframe_obj.map(func)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+        #print(expected._predicate)
+        #print(actual._predicate)
+        #self.assertEqual(expected._predicate, actual._predicate)
+
+##    def testMap_normalCase_withPredicate(self):
+##        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+##        aframe_obj._predicate = 't.id LIKE \'1%\''
+##
+##        func = 'len'
+##        dataset = aframe_obj._dataverse + '.' + aframe_obj._dataset
+##        schema = '%s(t.%s%s)' % (func, aframe_obj.schema, '')
+##        new_query = 'SELECT VALUE %s(t.%s%s) FROM %s t WHERE %s;' % (func, aframe_obj.schema, '', dataset, aframe_obj._predicate)
+##        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, new_query)
+##        expected._predicate = 't.id LIKE \'1%\''
+##
+##        actual = aframe_obj.map(func)
+##        self.assertEqual(expected._dataverse, actual._dataverse)
+##        self.assertEqual(expected._dataset, actual._dataset)
+##        self.assertEqual(expected._schema, actual._schema)
+##        self.assertEqual(expected._query, actual._query)
         
+    
 if __name__ == '__main__':
     unittest.main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
