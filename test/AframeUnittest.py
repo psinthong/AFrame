@@ -117,7 +117,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.query, actual.query)
         
     @patch.object(AFrame, 'get_dataset')
-    def testUnnest(self, mock_init):
+    def testUnnest_ErrorCase(self, mock_init):
         new_query = 'SELECT VALUE get_object_fields(t) FROM test_dataverse.test_dataset t;'
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'get_object_fields(t)', new_query)
         
@@ -126,6 +126,12 @@ class TestBasicFunction(unittest.TestCase):
             af.unnest(1)
             af.unnest(aframe_obj, True, None)
 
+    @patch.object(AFrame, 'get_dataset')
+    def testUnnest_NormalCase(self, mock_init):
+        new_query = 'SELECT VALUE get_object_fields(t) FROM test_dataverse.test_dataset t;'
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'get_object_fields(t)', new_query)
+
+        af = AFrame('test_dataverse', 'test_dataset')
         schema = 'unnest(%s)' % aframe_obj.schema
         expected_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % aframe_obj.query[:-1]
         expected = AFrameObj('test_dataverse', 'test_dataset', schema, expected_query)
@@ -162,12 +168,15 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
 
-    def testAdd(self):
+    def testAdd_ErrorCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
-        expected = AFrameObj('test_dataverse', 'test_dataset', 'id + 3', 'SELECT VALUE t.id + 3 FROM test_dataverse.test_dataset t;')
         
         with self.assertRaises(ValueError):
             aframe_obj.add(None)
+
+    def testAdd_NormalCase(self):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+        expected = AFrameObj('test_dataverse', 'test_dataset', 'id + 3', 'SELECT VALUE t.id + 3 FROM test_dataverse.test_dataset t;')
         
         aframe_obj.arithmetic_op = MagicMock(return_value = expected)
         actual = aframe_obj.add(3)
@@ -189,12 +198,15 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
 
-    def testMul(self):
+    def testMul_ErrorCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
-        expected = AFrameObj('test_dataverse', 'test_dataset', 'id * 3', 'SELECT VALUE t.id * 3 FROM test_dataverse.test_dataset t;')
-
+    
         with self.assertRaises(ValueError):
             aframe_obj.mul(None)
+
+    def testMul_NormalCase(self):
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+        expected = AFrameObj('test_dataverse', 'test_dataset', 'id * 3', 'SELECT VALUE t.id * 3 FROM test_dataverse.test_dataset t;')
 
         aframe_obj.arithmetic_op = MagicMock(return_value = expected)
         actual = aframe_obj.mul(3)
@@ -205,19 +217,24 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.query, actual.query)
 
     @patch.object(AFrame, 'get_dataset')
-    def testGetColumnCount(self, mock_init):
+    def testGetColumnCount_ErrorCase(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         with self.assertRaises(ValueError):
             af.get_column_count(None)
-            
+
+    @patch.object(AFrame, 'get_dataset')
+    def testGetColumnCount_NormalCase(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
+        
         expected = 5
         AFrame.send_request = MagicMock(return_value = [expected])
         actual = af.get_column_count(aframe_obj)
         af.send_request.assert_called_once_with('SELECT VALUE count(*) FROM (%s) t;' % aframe_obj.query[:-1])
 
     @patch.object(AFrame, 'get_dataset')
-    def testWithColumnErrorCase(self, mock_init):
+    def testWithColumn_ErrorCase(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', None, None)
         with self.assertRaises(ValueError):
@@ -226,7 +243,7 @@ class TestBasicFunction(unittest.TestCase):
             af.withColumn('id', None)
 
     @patch.object(AFrame, 'get_dataset')
-    def testWithColumnNormalCase(self, mock_init):
+    def testWithColumn_NormalCase(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
 
@@ -266,7 +283,7 @@ class TestBasicFunction(unittest.TestCase):
         AFrame.send.assert_called_once_with(query)
         self.assertEqual(json_response, actual)
 
-    def testPersistErrorCase(self):
+    def testPersist_ErrorCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         with self.assertRaises(ValueError):
             aframe_obj.persist(None, None)
