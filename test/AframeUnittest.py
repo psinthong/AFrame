@@ -367,6 +367,13 @@ class TestBasicFunction(unittest.TestCase):
         #print(actual._predicate)
         #self.assertEqual(expected._predicate, actual._predicate)
 
+    @patch.object(AFrame, 'get_dataset')
+    def testStr_Empty(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        expected = 'Empty AsterixDB DataFrame'
+        actual = str(af)
+        self.assertEqual(expected, actual)
+
 ##    def testMap_normalCase_withPredicate(self):
 ##        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
 ##        aframe_obj._predicate = 't.id LIKE \'1%\''
