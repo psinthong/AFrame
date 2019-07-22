@@ -1,8 +1,10 @@
 import unittest
 from unittest.mock import MagicMock
-from aframe.aframe import AFrame, AFrameObj
+from aframe.aframe import AFrame, AFrameObj#, OrderedAFrame
+from aframe.aframe import NestedAFrame
 from unittest.mock import patch
 import pandas as pd
+import numpy as np
 
 class TestBasicFunction(unittest.TestCase):
 
@@ -366,14 +368,7 @@ class TestBasicFunction(unittest.TestCase):
         #print(expected._predicate)
         #print(actual._predicate)
         #self.assertEqual(expected._predicate, actual._predicate)
-
-    @patch.object(AFrame, 'get_dataset')
-    def testStr_Empty(self, mock_init):
-        af = AFrame('test_dataverse', 'test_dataset')
-        expected = 'Empty AsterixDB DataFrame'
-        actual = str(af)
-        self.assertEqual(expected, actual)
-
+        
 ##    def testMap_normalCase_withPredicate(self):
 ##        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
 ##        aframe_obj._predicate = 't.id LIKE \'1%\''
@@ -390,6 +385,193 @@ class TestBasicFunction(unittest.TestCase):
 ##        self.assertEqual(expected._dataset, actual._dataset)
 ##        self.assertEqual(expected._schema, actual._schema)
 ##        self.assertEqual(expected._query, actual._query)
+
+    @patch.object(AFrame, 'get_dataset')
+    def testStr_Empty(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        expected = 'Empty AsterixDB DataFrame'
+        actual = str(af)
+        self.assertEqual(expected, actual)
+
+    @patch.object(AFrame, 'get_dataset')
+    def testStr_Empty(self, mock_init):
+        columns = ['name','age','GPA']
+        af = AFrame('test_dataverse', 'test_dataset', columns)
+        txt = 'AsterixDB DataFrame with the following pre-defined columns: \n\t'
+        expected = txt + str(af._columns)
+        actual = str(af)
+        self.assertEqual(expected, actual)
+
+    @patch.object(AFrame, 'get_dataset')
+    def testRepr(self, mock_init):
+        af = AFrame('test_dataverse','test_dataset')
+        af.__str__ = MagicMock(return_value = 'Empty AsterixDB DataFrame')
+
+        expected = 'Empty AsterixDB DataFrame'
+        actual = repr(af)
+        af.__str__.assert_called_once()
+        self.assertEqual(expected, actual)
+
+    @patch.object(AFrame, 'get_dataset')
+    def testGetItem_AFrameObjKey_NoQuery(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
+        dataset = af._dataverse + '.' + af._dataset
+        new_query = 'SELECT VALUE t FROM %s t WHERE %s;' %(dataset, aframe_obj.schema)
+        expected = AFrameObj('test_dataverse', 'test_dataset', aframe_obj.schema, new_query)
+        actual = af.__getitem__(aframe_obj)
+
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+##    @patch.object(AFrame, 'get_dataset')
+##    def testGetItem_AFrameObjKey_WithQuery(self, mock_init):
+##        af = AFrame('test_dataverse', 'test_dataset')
+##        af_query = 'SELECT t.* FROM %s t;' % 'test_dataverse.test_dataset'
+##        af.query = af_query
+##        print(af.query)
+##        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
+##        dataset = af._dataverse + '.' + af._dataset
+##        print('dataset:', dataset)
+##        print('af.query:', af.query[:-1])
+##        print('aframe_obj.schema:', aframe_obj.schema)
+##        new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, aframe_obj.schema)
+##        #should be new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, af.query[:-1], aframe_obj.schema)
+##        #TypeError: not all arguments converted during string formatting
+##        print(new_query)
+##        expected = AFrameObj('test_dataverse', 'test_dataset', aframe_obj.schema, new_query)
+##        print(af.query is None)
+##        actual = af.__getitem__(aframe_obj)
+##        print(expected._query)
+##        print(actual._query)
+##        self.assertEqual(expected._dataverse, actual._dataverse)
+##        self.assertEqual(expected._dataset, actual._dataset)
+##        self.assertEqual(expected._schema, actual._schema)
+##        self.assertEqual(expected._query, actual._query)
+        
+    @patch.object(AFrame, 'get_dataset')
+    def testGetItem_StrKey_NoQuery(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        key = 'id'
+        query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
+
+        expected = AFrameObj('test_dataverse', 'test_dataset', key, query)
+        actual = af.__getitem__(key)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+    #always recognize the af.query as none
+    '''@patch.object(AFrame, 'get_dataset')
+    def testGetItem_StrKey_WithQuery(self, mock_init):
+        af_query = 'SELECT VALUE t.* FROM %s t;' % ('test_dataverse.test_dataset')
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        af.query = af_query
+        print(af.query)
+        print(af.query is None)
+        key = 'id'
+        query = 'SELECT VALUE t.%s FROM (%s) t;' % (key, af.query[:-1])
+        print(query)
+
+        expected = AFrameObj('test_dataverse', 'test_dataset', key, query)
+        actual = af.__getitem__(key)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)'''
+
+    @patch.object(AFrame, 'get_dataset')
+    def testGetItem_ListKey_NoQuery(self, mock_init):
+        key = [1,2,3,4,5]
+        fields = ''
+        for i in range(len(key)):
+            if i > 0:
+                fields += ', '
+            fields += 't.%s'%key[i]
+        #print(fields)
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse+'.'+af._dataset
+        #print(dataset)
+        query = 'SELECT %s FROM %s t;' % (fields, dataset)
+        expected = AFrameObj(af._dataverse, af._dataset, key, query)
+
+        actual = af.__getitem__(key)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+    #always recognize the af.query as none
+    '''@patch.object(AFrame, 'get_dataset')
+    def testGetItem_ListKey_WithQuery(self, mock_init):
+        key = [1,2,3,4,5]
+        fields = ''
+        for i in range(len(key)):
+            if i > 0:
+                fields += ', '
+            fields += 't.%s'%key[i]
+        print(fields)
+        af = AFrame('test_dataverse', 'test_dataset')
+        af_query = 'SELECT t.* FROM %s t;' % 'test_dataverse.test_dataset'
+        af.query = af_query
+        dataset = af._dataverse+'.'+af._dataset
+        print(dataset)
+        query = 'SELECT %s FROM (%s) t;' % (fields, af.query[:-1])
+        expected = AFrameObj(af._dataverse, af._dataset, key, query)
+
+        actual = af.__getitem__(key)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)'''
+
+    #learn about np.ndarray
+    '''
+    @patch.object(AFrame, 'get_dataset')
+    def testGetItem_NdarrayKey_NoQuery(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        key = np.array([[1,2],[3,4]])
+        print(key)
+        fields = ''
+        for i in range(len(key)):
+            if i > 0:
+                fields += ', '
+            fields += 't.%s'%key[i]
+        print(fields)
+        dataset = af._dataverse+'.'+af._dataset
+        print(dataset)
+        query = 'SELECT %s FROM %s t;' % (fields, dataset)
+        expected = AFrameObj(af._dataverse, af._dataset, key, query)
+
+        actual = af.__getitem__(key)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)'''
+
+    #AFrame object does not have the attribute setitem
+    '''
+    @patch.object(AFrame, 'get_dataset')
+    def testSetItem_Exception(self, mock_init):
+        af = AFrame('test_dataverse','test_dataset')
+        value = AFrame('test_dataverse','test_dataset') #should be OrderedAFrame, try to import it 
+        with self.assertRaises(ValueError):
+            af.__setitem__(1, value)'''
+
+    @patch.object(AFrame, 'get_dataset')
+    def testFlatten(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        expected = NestedAFrame(af._dataverse, af._dataset, af.columns, af.query)
+        actual = af.flatten()
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected.columns, actual.columns)
+        self.assertEqual(expected._query, actual._query)
         
     
 if __name__ == '__main__':
