@@ -60,6 +60,41 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(actual.iloc[4].equals(row4))
 
     @patch.object(AFrame, 'get_dataset')
+    def testHeadWithSample(self, mock_init):
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                          {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
+                          {"attr1":5, "attr2":"str5"}, {"attr1":6, "attr2":"str6"},
+                          {"attr1":7, "attr2":"str7"}, {"attr1":8, "attr2":"str8"},
+                          {"attr1":9, "attr2":"str9"}, {"attr1":10,"attr2":"str10"}]
+        af = AFrame('test_dataverse', 'test_dataset')
+        af.send_request = MagicMock(return_value = json_response)
+
+        actual = af.head(10)
+        af.send_request.assert_called_once_with('SELECT VALUE t FROM test_dataverse.test_dataset t limit 10;')
+        self.assertEqual(len(actual), 10)
+        row0 = pd.Series([1, 'str1'], index=['attr1', 'attr2'])
+        row1 = pd.Series([2, 'str2'], index=['attr1', 'attr2'])
+        row2 = pd.Series([3, 'str3'], index=['attr1', 'attr2'])
+        row3 = pd.Series([4, 'str4'], index=['attr1', 'attr2'])
+        row4 = pd.Series([5, 'str5'], index=['attr1', 'attr2'])
+        row5 = pd.Series([6, 'str6'], index=['attr1', 'attr2'])
+        row6 = pd.Series([7, 'str7'], index=['attr1', 'attr2'])
+        row7 = pd.Series([8, 'str8'], index=['attr1', 'attr2'])
+        row8 = pd.Series([9, 'str9'], index=['attr1', 'attr2'])
+        row9 = pd.Series([10, 'str10'], index=['attr1', 'attr2'])
+        self.assertTrue(actual.iloc[0].equals(row0))
+        self.assertTrue(actual.iloc[1].equals(row1))
+        self.assertTrue(actual.iloc[2].equals(row2))
+        self.assertTrue(actual.iloc[3].equals(row3))
+        self.assertTrue(actual.iloc[4].equals(row4))
+        self.assertTrue(actual.iloc[5].equals(row5))
+        self.assertTrue(actual.iloc[6].equals(row6))
+        self.assertTrue(actual.iloc[7].equals(row7))
+        self.assertTrue(actual.iloc[8].equals(row8))
+        self.assertTrue(actual.iloc[9].equals(row9))
+        
+
+    @patch.object(AFrame, 'get_dataset')
     def testGetCount(self, mock_init):
         expected = 10
         af = AFrame('test_dataverse', 'test_dataset')
@@ -70,7 +105,15 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected, actual_count)
 
     @patch.object(AFrame, 'get_dataset')
-    def testToPandas(self, mock_init):
+    def testToPandas_Exception(self, mock_init):
+        from pandas.io import json
+        af = AFrame('test_dataverse', None)
+        with self.assertRaises(ValueError):
+            af.toPandas()
+
+    #sample == 0
+    @patch.object(AFrame, 'get_dataset')
+    def testToPandas_NormalCase1(self, mock_init):
         from pandas.io import json
         
         json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
@@ -97,6 +140,72 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(df.loc[2].equals(row2))
         self.assertTrue(df.loc[3].equals(row3))
         self.assertTrue(df.loc[4].equals(row4))
+
+    #sample > 0, self.query is None
+    @patch.object(AFrame, 'get_dataset')
+    def testToPandas_NormalCase2(self, mock_init):
+        from pandas.io import json
+        
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                         {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
+                         {"attr1": 5, "attr2": "str5"}]
+        
+        af = AFrame('test_dataverse', 'test_dataset')
+        af.send_request = MagicMock(return_value = json_response)
+
+        sample = 5
+        dataset = af._dataverse+'.'+af._dataset
+        query = 'SELECT VALUE t FROM %s t LIMIT %d;' % (dataset, sample)
+        actual = af.toPandas(sample)
+
+        af.send_request.assert_called_once_with(query)
+        self.assertEqual(len(actual), 5)
+        data = json.read_json(json.dumps(actual))
+        df = pd.DataFrame(data)
+        row0 = pd.Series([1, 'str1'], index=['attr1', 'attr2'])
+        row1 = pd.Series([2, 'str2'], index=['attr1', 'attr2'])
+        row2 = pd.Series([3, 'str3'], index=['attr1', 'attr2'])
+        row3 = pd.Series([4, 'str4'], index=['attr1', 'attr2'])
+        row4 = pd.Series([5, 'str5'], index=['attr1', 'attr2'])
+        self.assertTrue(df.loc[0].equals(row0))
+        self.assertTrue(df.loc[1].equals(row1))
+        self.assertTrue(df.loc[2].equals(row2))
+        self.assertTrue(df.loc[3].equals(row3))
+        self.assertTrue(df.loc[4].equals(row4))
+
+    #sample > 0, self.query is not None
+    '''
+    @patch.object(AFrame, 'get_dataset')
+    def testToPandas_NormalCase3(self, mock_init):
+        from pandas.io import json
+        
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                         {"attr1":3, "attr2":"str3"}, {"attr1":4, "attr2":"str4"},
+                         {"attr1": 5, "attr2": "str5"}]
+        
+        af = AFrame('test_dataverse', 'test_dataset')
+        af.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
+        af.send_request = MagicMock(return_value = json_response)
+
+        sample = 5
+        dataset = af._dataverse+'.'+af._dataset
+        query = 'SELECT VALUE t FROM (%s) t LIMIT %d;' % (dataset, af.query[:-1])
+        actual = af.toPandas(sample)
+
+        af.send_request.assert_called_once_with(query)
+        self.assertEqual(len(actual), 5)
+        data = json.read_json(json.dumps(actual))
+        df = pd.DataFrame(data)
+        row0 = pd.Series([1, 'str1'], index=['attr1', 'attr2'])
+        row1 = pd.Series([2, 'str2'], index=['attr1', 'attr2'])
+        row2 = pd.Series([3, 'str3'], index=['attr1', 'attr2'])
+        row3 = pd.Series([4, 'str4'], index=['attr1', 'attr2'])
+        row4 = pd.Series([5, 'str5'], index=['attr1', 'attr2'])
+        self.assertTrue(df.loc[0].equals(row0))
+        self.assertTrue(df.loc[1].equals(row1))
+        self.assertTrue(df.loc[2].equals(row2))
+        self.assertTrue(df.loc[3].equals(row3))
+        self.assertTrue(df.loc[4].equals(row4))'''
 
     @patch.object(AFrame, 'get_dataset')
     def testCollectQuery_NormalCase(self, mock_init):
