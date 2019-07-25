@@ -12,6 +12,9 @@ import pandas as pd
 from pandas.io.json import json_normalize
 import numpy as np
 
+'''Functions: create, get_dataset, describe, send_request, send, send_perf
+   are not tested yet.'''
+
 class TestBasicFunction(unittest.TestCase):
 
     @patch('aframe.AFrame.get_dataset')
@@ -174,7 +177,6 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(df.loc[4].equals(row4))
 
     #sample > 0, self.query is not None
-    '''
     @patch.object(AFrame, 'get_dataset')
     def testToPandas_NormalCase3(self, mock_init):
         from pandas.io import json
@@ -205,7 +207,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(df.loc[1].equals(row1))
         self.assertTrue(df.loc[2].equals(row2))
         self.assertTrue(df.loc[3].equals(row3))
-        self.assertTrue(df.loc[4].equals(row4))'''
+        self.assertTrue(df.loc[4].equals(row4))
 
     @patch.object(AFrame, 'get_dataset')
     def testCollectQuery_NormalCase(self, mock_init):
@@ -220,8 +222,17 @@ class TestBasicFunction(unittest.TestCase):
         self.assertRaises(ValueError, af1.collect_query)
         
 
+    #TypeError
     @patch.object(AFrame, 'get_dataset')
-    def testApply(self, mock_init):
+    def testApply_Exception(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        func = 1
+        with self.assertRaises(TypeError):
+            af.apply(func)
+
+    #af.query is None
+    @patch.object(AFrame, 'get_dataset')
+    def testApply_NormalCase1(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         actual = af.apply('get_object_fields') 
 
@@ -232,31 +243,126 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._dataset, actual._dataset)
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
-        
-    @patch.object(AFrame, 'get_dataset')
-    def testUnnest_ErrorCase(self, mock_init):
-        new_query = 'SELECT VALUE get_object_fields(t) FROM test_dataverse.test_dataset t;'
-        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'get_object_fields(t)', new_query)
-        
-        af = AFrame('test_dataverse', 'test_dataset')
-        with self.assertRaises(ValueError):
-            af.unnest(1)
-            af.unnest(aframe_obj, None, True, None)
 
+    #af.query is not None
     @patch.object(AFrame, 'get_dataset')
-    def testUnnest_NormalCase(self, mock_init):
-        new_query = 'SELECT VALUE get_object_fields(t) FROM test_dataverse.test_dataset t;'
-        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'get_object_fields(t)', new_query)
-
+    def testApply_NormalCase2(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
-        schema = 'unnest(%s)' % aframe_obj.schema
-        expected_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % aframe_obj.query[:-1]
-        expected = AFrameObj('test_dataverse', 'test_dataset', schema, expected_query)
-        actual = af.unnest(aframe_obj, False)
+        af.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
+        args_str = ''
+        func = 'get_object_fields'
+        new_query = 'SELECT VALUE %s(t%s) FROM %s t;' % (func, args_str, af.query[:-1])
+        expected = AFrameObj('test_dataverse', 'test_dataset', 'get_object_fields(t)', new_query)
+
+        actual = af.apply(func) 
         self.assertEqual(expected._dataverse, actual._dataverse)
         self.assertEqual(expected._dataset, actual._dataset)
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
+
+    #col is AFrameObj, appended == True, not name
+    @patch.object(AFrame, 'get_dataset')
+    def testUnnest_ErrorCase(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        name = None
+        col = AFrameObj('another_dataverse', 'another_dataset', 'AFrameObj_schema', 'AFrameObj_query;')
+        with self.assertRaises(ValueError):
+            af.unnest(col, None, True, None)
+
+    #col is str, meta is None
+    @patch.object(AFrame, 'get_dataset')
+    def testUnnest_NormalCase1(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        col = 'something'
+        schema = 'unnest(t.%s)' % col
+        new_query = 'SELECT VALUE %s FROM %s t unnest t.%s %s;' % (col, dataset, col, col)
+        #meta = ['str1', 'str2', 'str3']
+        expected = AFrameObj(af._dataverse, af._dataset, schema, new_query)
+
+        actual = af.unnest(col)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+    #col is str, meta is list
+    @patch.object(AFrame, 'get_dataset')
+    def testUnnest_NormalCase2(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        col = 'something'
+        meta = ['str1', 'str2', 'str3']
+        fields = ''
+        for i in range(len(meta)):
+            if i > 0:
+                fields += ', '
+            fields += 't.%s' % meta[i]
+        schema = '%s, t.%s' % (fields, col)
+        new_query = 'SELECT %s, %s FROM %s t unnest t.%s %s;' % (fields, col, dataset, col, col)
+        expected = AFrameObj(af._dataverse, af._dataset, schema, new_query)
+
+        actual = af.unnest(col, meta)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+    #col is str, meta is ndarray
+    @patch.object(AFrame, 'get_dataset')
+    def testUnnest_NormalCase3(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        col = 'something'
+        meta = np.array([['attr1','attr2'],['attr3','attr4']])
+        fields = ''
+        for i in range(len(meta)):
+            if i > 0:
+                fields += ', '
+            fields += 't.%s' % meta[i]
+        schema = '%s, t.%s' % (fields, col)
+        new_query = 'SELECT %s, %s FROM %s t unnest t.%s %s;' % (fields, col, dataset, col, col)
+        expected = AFrameObj(af._dataverse, af._dataset, schema, new_query)
+
+        actual = af.unnest(col, meta)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+    #col is AFrameObj, appended == False
+    @patch.object(AFrame, 'get_dataset')
+    def testUnnest_NormalCase4(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        col = AFrameObj('another_dataverse', 'another_dataset', 'AFrameObj_schema', 'AFrameObj_query;')
+        schema = 'unnest(%s)' % col.schema
+        new_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % col.query[:-1]
+        expected = AFrameObj(af._dataverse, af._dataset, schema, new_query)
+
+        actual = af.unnest(col, None, False, None)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+    #col is AFrameObj, appended == True
+    @patch.object(AFrame, 'get_dataset')
+    def testUnnest_NormalCase5(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        dataset = af._dataverse + '.' + af._dataset
+        name = 'name'
+        col = AFrameObj('another_dataverse', 'another_dataset', 'AFrameObj_schema', 'AFrameObj_query;')
+        new_query = 'SELECT u %s, t.* FROM %s t unnest t.%s u;' % (name, dataset, col.schema)
+        schema = col.schema
+        expected = AFrameObj(af._dataverse, af._dataset, schema, new_query)
+
+        actual = af.unnest(col, None, True, name)
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testToAFrameObj(self, mock_init):
@@ -274,6 +380,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected2.schema, actual2.schema)
         self.assertEqual(expected2.query, actual2.query)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testArithmeticOp(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         
@@ -285,12 +392,14 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testAdd_ErrorCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         
         with self.assertRaises(ValueError):
             aframe_obj.add(None)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testAdd_NormalCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         expected = AFrameObj('test_dataverse', 'test_dataset', 'id + 3', 'SELECT VALUE t.id + 3 FROM test_dataverse.test_dataset t;')
@@ -303,6 +412,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
         
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''   
     def testAddOperator(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         expected = AFrameObj('test_dataverse', 'test_dataset', 'id + 3', 'SELECT VALUE t.id + 3 FROM test_dataverse.test_dataset t;')
@@ -315,12 +425,14 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testMul_ErrorCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
     
         with self.assertRaises(ValueError):
             aframe_obj.mul(None)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testMul_NormalCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         expected = AFrameObj('test_dataverse', 'test_dataset', 'id * 3', 'SELECT VALUE t.id * 3 FROM test_dataverse.test_dataset t;')
@@ -333,6 +445,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
 
+    #other is not AFrameObj
     @patch.object(AFrame, 'get_dataset')
     def testGetColumnCount_ErrorCase(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
@@ -340,6 +453,7 @@ class TestBasicFunction(unittest.TestCase):
         with self.assertRaises(ValueError):
             af.get_column_count(None)
 
+    #other is AFrameObj
     @patch.object(AFrame, 'get_dataset')
     def testGetColumnCount_NormalCase(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
@@ -350,12 +464,19 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.get_column_count(aframe_obj)
         af.send_request.assert_called_once_with('SELECT VALUE count(*) FROM (%s) t;' % aframe_obj.query[:-1])
 
+    #name is not str
     @patch.object(AFrame, 'get_dataset')
-    def testWithColumn_ErrorCase(self, mock_init):
+    def testWithColumn_ErrorCase1(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', None, None)
         with self.assertRaises(ValueError):
             af.withColumn(None, aframe_obj)
+
+    #col is not AFrameObj
+    @patch.object(AFrame, 'get_dataset')
+    def testWithColumn_ErrorCase2(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', None, None)
         with self.assertRaises(ValueError):
             af.withColumn('id', None)
 
@@ -374,6 +495,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected.schema, actual.schema)
         self.assertEqual(expected.query, actual.query)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testCreateTmpDataverseNone(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')       
         json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
@@ -387,6 +509,7 @@ class TestBasicFunction(unittest.TestCase):
         AFrame.send.assert_called_once_with(query)
         self.assertEqual(json_response, actual)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testCreateTmpDataverseNotNone(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')       
         json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
@@ -400,6 +523,7 @@ class TestBasicFunction(unittest.TestCase):
         AFrame.send.assert_called_once_with(query)
         self.assertEqual(json_response, actual)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testPersist_ErrorCase(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         with self.assertRaises(ValueError):
@@ -409,6 +533,7 @@ class TestBasicFunction(unittest.TestCase):
         with self.assertRaises(ValueError):
             aframe_obj_error.persist('id', None)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     @patch.object(AFrame, 'get_dataset')
     def testPersistNormalWithDataverse(self, mock_init):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -427,7 +552,8 @@ class TestBasicFunction(unittest.TestCase):
         AFrame.send.assert_called_once_with(new_q)
         self.assertEqual(expected._dataverse, actual._dataverse)
         self.assertEqual(expected._dataset, actual._dataset)
-        
+
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     @patch.object(AFrame, 'get_dataset')
     def testPersistNormalNoDataverse(self, mock_init):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -459,11 +585,13 @@ class TestBasicFunction(unittest.TestCase):
         AFrame.send.assert_called_once_with(query)
         self.assertEqual(expected, actual)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testMap_funcNotStr(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         with self.assertRaises(TypeError):
             aframe_obj.map(None)
 
+    '''This is a function of AFrameObj class, but it appears in the AFrame-Functions file'''
     def testMap_normalCase_NoPredicate(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         aframe_obj._predicate = None
@@ -501,15 +629,17 @@ class TestBasicFunction(unittest.TestCase):
 ##        self.assertEqual(expected._schema, actual._schema)
 ##        self.assertEqual(expected._query, actual._query)
 
+    #self._columns is None
     @patch.object(AFrame, 'get_dataset')
-    def testStr_Empty(self, mock_init):
+    def testStr_NormalCase1(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         expected = 'Empty AsterixDB DataFrame'
         actual = str(af)
         self.assertEqual(expected, actual)
 
+    #self._columns is not None
     @patch.object(AFrame, 'get_dataset')
-    def testStr_Empty(self, mock_init):
+    def testStr_NormalCase2(self, mock_init):
         columns = ['name','age','GPA']
         af = AFrame('test_dataverse', 'test_dataset', columns)
         txt = 'AsterixDB DataFrame with the following pre-defined columns: \n\t'
@@ -527,8 +657,9 @@ class TestBasicFunction(unittest.TestCase):
         af.__str__.assert_called_once()
         self.assertEqual(expected, actual)
 
+    #key is AFrameObj, af.query is None
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_AFrameObjKey_NoQuery(self, mock_init):
+    def testGetItem_NormalCase1(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
         dataset = af._dataverse + '.' + af._dataset
@@ -541,33 +672,25 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._schema, actual._schema)
         self.assertEqual(expected._query, actual._query)
 
-##    @patch.object(AFrame, 'get_dataset')
-##    def testGetItem_AFrameObjKey_WithQuery(self, mock_init):
-##        af = AFrame('test_dataverse', 'test_dataset')
-##        af_query = 'SELECT t.* FROM %s t;' % 'test_dataverse.test_dataset'
-##        af.query = af_query
-##        print(af.query)
-##        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
-##        dataset = af._dataverse + '.' + af._dataset
-##        print('dataset:', dataset)
-##        print('af.query:', af.query[:-1])
-##        print('aframe_obj.schema:', aframe_obj.schema)
-##        new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, aframe_obj.schema)
-##        #should be new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, af.query[:-1], aframe_obj.schema)
-##        #TypeError: not all arguments converted during string formatting
-##        print(new_query)
-##        expected = AFrameObj('test_dataverse', 'test_dataset', aframe_obj.schema, new_query)
-##        print(af.query is None)
-##        actual = af.__getitem__(aframe_obj)
-##        print(expected._query)
-##        print(actual._query)
-##        self.assertEqual(expected._dataverse, actual._dataverse)
-##        self.assertEqual(expected._dataset, actual._dataset)
-##        self.assertEqual(expected._schema, actual._schema)
-##        self.assertEqual(expected._query, actual._query)
-        
+    #key is AFrameObj, af.query is not None
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_StrKey_NoQuery(self, mock_init):
+    def testGetItem_NormalCase2(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        af.query = 'af_query;'
+        key = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
+        dataset = af._dataverse + '.' + af._dataset
+        new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, af.query[:-1], key.schema)
+        expected = AFrameObj(af._dataverse, af._dataset, key.schema, new_query)
+        actual = af.__getitem__(key)
+
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._schema, actual._schema)
+        self.assertEqual(expected._query, actual._query)
+
+    #key is str, af.query is None
+    @patch.object(AFrame, 'get_dataset')
+    def testGetItem_NormalCase3(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         dataset = af._dataverse + '.' + af._dataset
         key = 'id'
@@ -580,8 +703,9 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._schema, actual._schema)
         self.assertEqual(expected._query, actual._query)
 
+    #key is str, af.query is not None
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_StrKey_WithQuery(self, mock_init):
+    def testGetItem_NormalCase4(self, mock_init):
         af_query = 'SELECT VALUE t.* FROM %s t;' % ('test_dataverse.test_dataset')
         af = AFrame('test_dataverse', 'test_dataset')
         dataset = af._dataverse + '.' + af._dataset
@@ -596,8 +720,9 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._schema, actual._schema)
         self.assertEqual(expected._query, actual._query)
 
+    #key is list, af.query is None
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_ListKey_NoQuery(self, mock_init):
+    def testGetItem_NormalCase5(self, mock_init):
         key = [1,2,3,4,5]
         fields = ''
         for i in range(len(key)):
@@ -615,8 +740,9 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._schema, actual._schema)
         self.assertEqual(expected._query, actual._query)
 
+    #key is list, af.query is not None
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_ListKey_WithQuery(self, mock_init):
+    def testGetItem_NormalCase6(self, mock_init):
         key = [1,2,3,4,5]
         fields = ''
         for i in range(len(key)):
@@ -636,8 +762,9 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._schema, actual._schema)
         self.assertEqual(expected._query, actual._query)
 
+    #key is ndarray, af.query is None
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_NdarrayKey_NoQuery(self, mock_init):
+    def testGetItem_NormalCase7(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         key = np.array([[1,2],[3,4]])
         fields = ''
@@ -714,25 +841,22 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.collect_query()
         self.assertEqual(expected, actual)
 
-    def test_attach_row_id_empty(self):
+    #empty result_lst
+    def test_attach_row_id_1(self):
         result_lst = []
         expected = result_lst
         actual = AFrame.attach_row_id(result_lst)
         self.assertEqual(expected, actual)
 
-    #can't define a result_lst
-    '''
-    def test_attach_row_id_NormalCase(self):
-        result_lst = [['row_id', 'data']]
-        flatten_results = []
-        for i in result_lst:
-            i['data']['row_id'] = i['row_id']
-            flatten_results.append(i['data'])
-        expected = flatten_results
-        print(expected)
-        
+    #nonempty result_lst
+    def test_attach_row_id_2(self):
+        result_lst = [{'data': {'row_id': 1}, 'row_id': 2},
+                      {'data': {'row_id': 3}, 'row_id': 4},
+                      {'data': {'row_id': 5}, 'row_id': 6}]
+        expected = [{'row_id': 2}, {'row_id': 4}, {'row_id': 6}]
+
         actual = AFrame.attach_row_id(result_lst)
-        print(actual)'''
+        self.assertEqual(expected, actual)
 
     @patch.object(AFrame, 'get_dataset')
     def testNotna(self, mock_init):
@@ -740,11 +864,7 @@ class TestBasicFunction(unittest.TestCase):
         notna = MagicMock(side_effect=NotImplementedError)
         with self.assertRaises(NotImplementedError):
             af.notna()
-
-#don't know how to test...
-##    @patch.object(AFrame, 'get_dataset')
-##    def testCreate(self, mock_init):
-        
+            
     @patch.object(AFrame, 'get_dataset')
     def testInitColumns(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
@@ -752,10 +872,9 @@ class TestBasicFunction(unittest.TestCase):
         with self.assertRaises(ValueError):
             af.init_columns(columns)
 
-##    def testGetDataset(self):
-
+    #letf_on is None, right_on is not None
     @patch.object(AFrame, 'get_dataset')
-    def testJoin_ValueError(self, mock_init):
+    def testJoin_ValueError1(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         other = AFrame('other_dataverse', 'other_dataset')
         left_on = None
@@ -763,16 +882,27 @@ class TestBasicFunction(unittest.TestCase):
         with self.assertRaises(ValueError):
             af.join(other, left_on, right_on)
 
+    #left_on is not None, right_on is None
+    @patch.object(AFrame, 'get_dataset')
+    def testJoin_ValueError2(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        other = AFrame('other_dataverse', 'other_dataset')
         left_on = 'something'
         right_on = None
         with self.assertRaises(ValueError):
             af.join(other, left_on, right_on)
 
+    #left_on and right_on are both None
+    @patch.object(AFrame, 'get_dataset')
+    def testJoin_ValueError3(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        other = AFrame('other_dataverse', 'other_dataset')
         left_on = None
         right_on = None
         with self.assertRaises(ValueError):
             af.join(other, left_on, right_on)
 
+    #left_on and right_on are not None, how is not in join_types
     @patch.object(AFrame, 'get_dataset')
     def testJoin_NotImplementedError(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
@@ -1124,6 +1254,53 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._schema, actual._schema)
         self.assertEqual(expected._query, actual._query)
 
+    #window is not None and not Window
+    @patch.object(AFrame, 'get_dataset')
+    def testRolling_ValueError1(self, mock_init):
+        window = 'something'
+        on = None
+        af = AFrame('test_dataverse', 'test_dataset')
+        with self.assertRaises(ValueError):
+            af.rolling(window, on)
+
+    #window is None and on is None
+    @patch.object(AFrame, 'get_dataset')
+    def testRolling_ValueError2(self, mock_init):
+        window = None
+        on = None
+        af = AFrame('test_dataverse', 'test_dataset')
+        with self.assertRaises(ValueError):
+            af.rolling(window, on)
+
+    #normal case
+    @patch.object(AFrame, 'get_dataset')
+    def testRolling_NormalCase(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        window = Window(None, None, None)
+        on = None
+        expected = OrderedAFrame(af._dataverse, af._dataset, af._columns, on, af.query, window)
+        actual = af.rolling(window, on)
+
+        self.assertEqual(expected._dataverse, actual._dataverse)
+        self.assertEqual(expected._dataset, actual._dataset)
+        self.assertEqual(expected._columns, actual._columns)
+        self.assertEqual(expected.on, actual.on)
+        self.assertEqual(expected.query, actual.query)
+        self.assertEqual(expected._window, actual._window)
+
+    @patch.object(AFrame, 'get_dataset')
+    def testDrop(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        AFrame.send = MagicMock(return_value = 'something')
+        expected = 'something'
+
+        actual = AFrame.drop(af)
+        dataverse = af._dataverse
+        dataset = af._dataset
+        query = 'DROP DATASET %s.%s;' % (dataverse, dataset)
+        AFrame.send.assert_called_once_with(query)
+        self.assertEqual(expected, actual)
+
     ###DESCRIBE NOT TESTED YET###
     '''
     @patch.object(AFrame, 'get_dataset')
@@ -1201,41 +1378,6 @@ class TestBasicFunction(unittest.TestCase):
         expected = pd.DataFrame(data, index=index, columns=all_cols)
         actual = af.describe()
         af.send_request.assert_called_with(query)'''
-        
-
-    #window is not None and not Window
-    @patch.object(AFrame, 'get_dataset')
-    def testRolling_ValueError1(self, mock_init):
-        window = 'something'
-        on = None
-        af = AFrame('test_dataverse', 'test_dataset')
-        with self.assertRaises(ValueError):
-            af.rolling(window, on)
-
-    #window is None and on is None
-    @patch.object(AFrame, 'get_dataset')
-    def testRolling_ValueError2(self, mock_init):
-        window = None
-        on = None
-        af = AFrame('test_dataverse', 'test_dataset')
-        with self.assertRaises(ValueError):
-            af.rolling(window, on)
-
-    #normal case
-    @patch.object(AFrame, 'get_dataset')
-    def testRolling_NormalCase(self, mock_init):
-        af = AFrame('test_dataverse', 'test_dataset')
-        window = Window(None, None, None)
-        on = None
-        expected = OrderedAFrame(af._dataverse, af._dataset, af._columns, on, af.query, window)
-        actual = af.rolling(window, on)
-
-        self.assertEqual(expected._dataverse, actual._dataverse)
-        self.assertEqual(expected._dataset, actual._dataset)
-        self.assertEqual(expected._columns, actual._columns)
-        self.assertEqual(expected.on, actual.on)
-        self.assertEqual(expected.query, actual.query)
-        self.assertEqual(expected._window, actual._window)
 
     ###send_request & send & send_perf: bad request (can't open 19002)###
     '''def testSendRequest(self):
@@ -1279,19 +1421,6 @@ class TestBasicFunction(unittest.TestCase):
         expected = ret
         actual = AFrame.send_perf(query)
         self.assertEqual(expected, actual)'''
-
-    @patch.object(AFrame, 'get_dataset')
-    def testDrop(self, mock_init):
-        af = AFrame('test_dataverse', 'test_dataset')
-        AFrame.send = MagicMock(return_value = 'something')
-        expected = 'something'
-
-        actual = AFrame.drop(af)
-        dataverse = af._dataverse
-        dataset = af._dataset
-        query = 'DROP DATASET %s.%s;' % (dataverse, dataset)
-        AFrame.send.assert_called_once_with(query)
-        self.assertEqual(expected, actual)
     
 if __name__ == '__main__':
     unittest.main()
