@@ -3,6 +3,7 @@ import pandas as pd
 import pandas.io.json as json
 import numpy as np
 from aframe.missing import notna
+from aframe.window import Window
 
 
 class AFrameObj:
@@ -19,8 +20,14 @@ class AFrameObj:
 
     def __getitem__(self, key):
         dataset = self._dataverse + '.' + self._dataset
+        # if isinstance(key, AFrameObj):
+        #     raise NotImplemented
         if isinstance(key, AFrameObj):
-            raise NotImplemented
+            if self.query is None:
+                new_query = 'SELECT VALUE t FROM %s t WHERE %s;' %(dataset, key.schema)
+            else:
+                new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (self.query[:-1], key.schema)
+            return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
 
         if isinstance(key, str):
             # if self._schema is not None:
@@ -371,3 +378,11 @@ class AFrameObj:
 
     def notna(self):
         return notna(self)
+
+    def rolling(self, window=None, on=None):
+        if window is not None and not isinstance(window, Window):
+            raise ValueError('window object must be of type Window')
+        elif on is None and window is None:
+            raise ValueError('Must provide at least \'on\' or \'window\' value')
+        else:
+            return af.aframe.OrderedAFrame(self._dataverse, self._dataset, self._schema, on, self.query, window)

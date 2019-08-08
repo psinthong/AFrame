@@ -37,7 +37,6 @@ class AFrame:
                 new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, self.query[:-1], key.schema)
             return AFrameObj(self._dataverse, self._dataset, key.schema, new_query)
 
-
         if isinstance(key, str):
             if self.query is None:
                 query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
@@ -95,6 +94,14 @@ class AFrame:
         if '_uuid' in df.columns:
             df.drop('_uuid', axis=1, inplace=True)
         return df
+
+    # def collect(self):
+    #     results = self.send_request(self._query)
+    #     json_str = json.dumps(results)
+    #     result = pd.DataFrame(data=json.read_json(json_str))
+    #     if '_uuid' in result.columns:
+    #         result.drop('_uuid', axis=1, inplace=True)
+    #     return result
 
     def flatten(self):
         return NestedAFrame(self._dataverse, self._dataset, self.columns, self.query)
@@ -495,136 +502,108 @@ class OrderedAFrame(AFrame):
         over = ''
         if self._window is not None:
             if self._window.part() is not None:
-                over += 'PARTITION BY %s ' % self._window._part
+                over += 'PARTITION BY t.%s ' % self._window._part
             if self._window.ord() is not None:
-                over += 'ORDER BY %s ' % self._window._ord
+                over += 'ORDER BY t.%s ' % self._window._ord
             if self._window.rows() is not None:
                 over += self._window._rows
         else:
-            over += 'ORDER BY %s ' % self.on
+            over += 'ORDER BY t.%s ' % self.on
         return 'OVER(%s)' % over
 
-    def sum(self):
+    def validate_agg_func(self, func, arg=None):
         over = self.get_window()
-        if isinstance(self.on, str):
-            dataset = self._dataverse + '.' + self._dataset
-            col = 'SUM(t.%s) %s' % (self.on, over)
-            query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
-            return OrderedAFrame(self._dataverse, self._dataset, col, self.on, query, self._window)
+        dataset = self._dataverse + '.' + self._dataset
+        if self.query is not None:
+            dataset = '(%s)' % self.query[:-1]
+        if self.on is not None:
+            if arg is None:
+                col = '%s(t.%s) %s' % (func, self.on, over)
+                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
+            else:
+                col = '%s(t.%s) %s' % (func, arg, over)
+                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
+        elif self._window is not None:
+            if arg is None:
+                col = '%s(t.%s) %s' % (func, self._window.ord(), over)
+                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
+            else:
+                col = '%s(t.%s) %s' % (func, arg, over)
+                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
+        else:
+            raise ValueError('Must provide either on or window')
+        return OrderedAFrame(self._dataverse, self._dataset, col, self.on, query, self._window)
+
+    def sum(self,col=None):
+        return self.validate_agg_func('SUM',col)
+
+    def count(self, col=None):
+        return self.validate_agg_func('COUNT', col)
+
+    def avg(self, col=None):
+        return self.validate_agg_func('AVG', col)
+
+    mean = avg
+
+    def min(self, col=None):
+        return self.validate_agg_func('MIN', col)
+
+    def max(self, col=None):
+        return self.validate_agg_func('MAX', col)
+
+    def stddev_samp(self, col=None):
+        return self.validate_agg_func('STDDEV_SAMP', col)
+
+    def stddev_pop(self, col=None):
+        return self.validate_agg_func('STDDEV_POP', col)
+
+    def var_samp(self, col=None):
+        return self.validate_agg_func('VAR_SAMP', col)
+
+    def var_pop(self, col=None):
+        return self.validate_agg_func('VAR_POP', col)
+
+    def skewness(self, col=None):
+        return self.validate_agg_func('SKEWNESS', col)
+
+    def kurtosis(self, col=None):
+        return self.validate_agg_func('KURTOSIS', col)
 
     def row_number(self):
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'ROW_NUMBER() %s' % over
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function('ROW_NUMBER')
 
     def cume_dist(self):
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'CUME_DIST() %s' % over
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function('CUME_DIST')
 
     def dense_rank(self):
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'DENSE_RANK() %s' % over
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function('DENSE_RANK')
 
     def first_value(self, expr, ignore_null=False):
-        if not isinstance(expr,str):
-            raise ValueError('expr for first_value must be string')
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'FIRST_VALUE(%s) %s' % (expr, over)
-        if ignore_null:
-            columns = 'FIRST_VALUE(%s) IGNORE NULLS %s' % (expr, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function_argument('FIRST_VALUE', expr, ignore_null)
 
     def lag(self, offset, expr, ignore_null=False):
-        if not isinstance(expr,str):
-            raise ValueError('expr for lag must be string')
-        if not isinstance(offset,int):
-            raise ValueError('offset for lag must be an integer')
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'LAG(%s, %d) %s' % (expr, offset, over)
-        if ignore_null:
-            columns = 'LAG(%s, %d) IGNORE NULLS %s' % (expr, offset, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function_two_arguments('LAG', offset, expr, ignore_null)
 
     def last_value(self, expr, ignore_null=False):
-        if not isinstance(expr,str):
-            raise ValueError('expr for last_value must be string')
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'LAST_VALUE(%s) %s' % (expr, over)
-        if ignore_null:
-            columns = 'LAST_VALUE(%s) IGNORE NULLS %s' % (expr, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function_argument('LAST_VALUE', expr, ignore_null)
 
     def lead(self, offset, expr, ignore_null=False):
-        if not isinstance(expr,str):
-            raise ValueError('expr for lead must be string')
-        if not isinstance(offset,int):
-            raise ValueError('offset for lead must be an integer')
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'LEAD(%s, %d) %s' % (expr, offset, over)
-        if ignore_null:
-            columns = 'LEAD(%s,%d) IGNORE NULLS %s' % (expr, offset, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function_two_arguments('LEAD', offset, expr, ignore_null)
 
     def nth_value(self, offset, expr, ignore_null=False):
-        if not isinstance(expr,str):
-            raise ValueError('expr for nth_value must be string')
-        if not isinstance(offset,int):
-            raise ValueError('offset for nth_value must be an integer')
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'NTH_VALUE(%s, %d) %s' % (expr, offset, over)
-        if ignore_null:
-            columns = 'NTH_VALUE(%s,%d) IGNORE NULLS %s' % (expr, offset, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function_two_arguments('NTH_VALUE', offset, expr, ignore_null)
 
     def ntile(self, num_tiles):
-        if not isinstance(num_tiles, int):
-            raise ValueError('expr for ntile must be string')
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'NTILE(%s) %s' % (num_tiles, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function_argument('NTILE', str(num_tiles), False)
 
     def percent_rank(self):
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'PERCENT_RANK() %s' % over
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function('PERCENT_RANK')
 
     def rank(self):
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'RANK() %s' % over
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function('RANK')
 
     def ratio_to_report(self, expr):
-        if not isinstance(expr,str):
-            raise ValueError('expr for ratio_to_report must be string')
-        dataset = self._dataverse + '.' + self._dataset
-        over = self.get_window()
-        columns = 'RATIO_TO_REPORT(%s) %s' % (expr, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return self.validate_window_function_argument('RATIO_TO_REPORT', expr, False)
 
     def collect(self):
         results = AFrame.send_request(self.query)
@@ -634,3 +613,41 @@ class OrderedAFrame(AFrame):
             result.drop('_uuid', axis=1, inplace=True)
         return result
 
+    def validate_window_function(self, func):
+        dataset = self._dataverse + '.' + self._dataset
+        if self.query is not None:
+            dataset = '(%s)' % self.query[:-1]
+        over = self.get_window()
+        columns = '%s() %s' % (func, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+
+    def validate_window_function_argument(self, func, expr, ignore_null):
+        if not isinstance(expr,str):
+            raise ValueError('expr for first_value must be string')
+        dataset = self._dataverse + '.' + self._dataset
+        if self.query is not None:
+            dataset = '(%s)' % self.query[:-1]
+        over = self.get_window()
+        columns = '%s(%s) %s' % (func, expr, over)
+        if ignore_null:
+            columns = '%s(%s) IGNORE NULLS %s' % (func, expr, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+
+    def validate_window_function_two_arguments(self, func, offset, expr, ignore_null=False):
+        if not isinstance(expr,str):
+            error_msg = 'expr for %s must be string' % func
+            raise ValueError(error_msg)
+        if not isinstance(offset,int):
+            error_msg = 'offset for %s must be an integer' % func
+            raise ValueError(error_msg)
+        dataset = self._dataverse + '.' + self._dataset
+        if self.query is not None:
+            dataset = '(%s)' % self.query[:-1]
+        over = self.get_window()
+        columns = '%s(%s, %d) %s' % (func, expr, offset, over)
+        if ignore_null:
+            columns = '%s(%s,%d) IGNORE NULLS %s' % (func, expr, offset, over)
+        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
+        return OrderedAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
