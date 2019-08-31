@@ -34,65 +34,52 @@ class TestBasicFunction(unittest.TestCase):
         expected = 'Column: '+'schema'
         actual = str(af_obj)
         self.assertEqual(expected, actual)
+        
     def testGetItem_KeyIsStrSchemaIsNotNone(self):
-        af_obj = AFrameObj('test_dataverse', 'test_dataset', 'test_schema')
-        key = 'key'
-        dataset = af_obj._dataverse + '.' + af_obj._dataset
-        new_query = 'SELECT VALUE t.%s FROM %s t WHERE %s;' % (key, dataset, af_obj._schema)
+        af_obj = AFrameObj('test_dataverse', 'test_dataset', 'id > 0')
+        key = 'id'
         actual = af_obj[key]
 
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('key', actual._schema)
-        self.assertEqual(new_query, actual._query)
-        self.assertEqual('test_schema', actual._predicate)
+        self.assertEqual('id', actual._schema)
+        self.assertEqual('SELECT VALUE t.id FROM test_dataverse.test_dataset t WHERE id > 0;', actual._query)
+        self.assertEqual('id > 0', actual._predicate)
 
     def testGetItem_KeyIsStrQueryIsNotNone(self):
-        af_obj = AFrameObj('test_dataverse', 'test_dataset', None, 'test_query;')
-        key = 'key'
-        dataset = af_obj._dataverse + '.' + af_obj._dataset
+        af_obj = AFrameObj('test_dataverse', 'test_dataset', None, 'SELECT VALUE t FROM test_dataverse.test_dataset t;')
+        key = 'id'
         predicate = None
-        new_query = 'SELECT VALUE t.%s FROM (%s) t;' % (key, af_obj._query[:-1])
         actual = af_obj[key]
 
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('key', actual._schema)
-        self.assertEqual(new_query, actual._query)
+        self.assertEqual('id', actual._schema)
+        self.assertEqual('SELECT VALUE t.id FROM (SELECT VALUE t FROM test_dataverse.test_dataset t) t;', actual._query)
         self.assertEqual(None, actual._predicate)
 
     def testGetItem_KeyIsStrSchemaIsNoneQueryIsNone(self):
         af_obj = AFrameObj('test_dataverse', 'test_dataset', None, None)
-        key = 'key'
+        key = 'id'
         dataset = af_obj._dataverse + '.' + af_obj._dataset
         predicate = None
-        new_query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
         actual = af_obj[key]
 
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('key', actual._schema)
-        self.assertEqual(new_query, actual._query)
+        self.assertEqual('id', actual._schema)
+        self.assertEqual('SELECT VALUE t.id FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._predicate)
 
     def testGetItem_KeyIsListSchemaIsNotNone(self):
         af_obj = AFrameObj('test_dataverse', 'test_dataset', 'test_schema', None, 'test_predicate')
         key = ['attr1', 'attr2', 'attr3']
-        dataset = af_obj._dataverse + '.' + af_obj._dataset
-        fields = ''
-        for i in range(len(key)):
-            if i > 0:
-                fields += ', '
-            fields += 't.%s' % key[i]
-        predicate = af_obj._schema
-        new_query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, af_obj._schema)
-        expected = AFrameObj(af_obj._dataverse, af_obj._dataset, key, new_query, af_obj._schema)
         actual = af_obj[key]
 
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual(['attr1', 'attr2', 'attr3'], actual._schema)
-        self.assertEqual(new_query, actual._query)
+        self.assertEqual('SELECT t.attr1, t.attr2, t.attr3 FROM test_dataverse.test_dataset t WHERE test_schema;', actual._query)
         self.assertEqual('test_schema', actual._predicate)
 
     
@@ -274,11 +261,8 @@ class TestBasicFunction(unittest.TestCase):
 
         aframe_obj.add = MagicMock(return_value=expected)
         actual = aframe_obj+3
-        
-        self.assertEqual('test_dataverse', actual._dataverse)
-        self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('id + 3', actual.schema)
-        self.assertEqual('SELECT VALUE t.id + 3 FROM test_dataverse.test_dataset t;', actual.query)
+
+        aframe_obj.add.assert_called_once_with(3)
 
     def testSubOperator(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -286,11 +270,8 @@ class TestBasicFunction(unittest.TestCase):
 
         aframe_obj.sub = MagicMock(return_value=expected)
         actual = aframe_obj-3
-        
-        self.assertEqual('test_dataverse', actual._dataverse)
-        self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('id - 3', actual.schema)
-        self.assertEqual('SELECT VALUE t.id - 3 FROM test_dataverse.test_dataset t;', actual.query)
+
+        aframe_obj.sub.assert_called_once_with(3)
 
     def testMulOperator(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -298,11 +279,8 @@ class TestBasicFunction(unittest.TestCase):
 
         aframe_obj.mul = MagicMock(return_value=expected)
         actual = aframe_obj*3
-        
-        self.assertEqual('test_dataverse', actual._dataverse)
-        self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('id * 3', actual.schema)
-        self.assertEqual('SELECT VALUE t.id * 3 FROM test_dataverse.test_dataset t;', actual.query)
+
+        aframe_obj.mul.assert_called_once_with(3)
 
     def testModOperator(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -310,11 +288,8 @@ class TestBasicFunction(unittest.TestCase):
 
         aframe_obj.mod = MagicMock(return_value=expected)
         actual = aframe_obj%3
-        
-        self.assertEqual('test_dataverse', actual._dataverse)
-        self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('id % 3', actual.schema)
-        self.assertEqual('SELECT VALUE t.id % 3 FROM test_dataverse.test_dataset t;', actual.query)
+
+        aframe_obj.mod.assert_called_once_with(3)
 
     def testPowOperator(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -322,11 +297,8 @@ class TestBasicFunction(unittest.TestCase):
 
         aframe_obj.pow = MagicMock(return_value=expected)
         actual = aframe_obj**3
-        
-        self.assertEqual('test_dataverse', actual._dataverse)
-        self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('id ** 3', actual.schema)
-        self.assertEqual('SELECT VALUE t.id ** 3 FROM test_dataverse.test_dataset t;', actual.query) ###^ or ** ###
+
+        aframe_obj.pow.assert_called_once_with(3)
 
     def testTrueDivOperator(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -334,19 +306,15 @@ class TestBasicFunction(unittest.TestCase):
 
         aframe_obj.div = MagicMock(return_value=expected)
         actual = aframe_obj/3
-        
-        self.assertEqual('test_dataverse', actual._dataverse)
-        self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('id / 3', actual.schema)
-        self.assertEqual('SELECT VALUE t.id / 3 FROM test_dataverse.test_dataset t;', actual.query)
 
+        aframe_obj.div.assert_called_once_with(3)
 
     def testLen(self):
         af.AFrame.send_request = MagicMock(return_value = [7])
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
 
         query = 'SELECT VALUE count(*) FROM (%s) t;' % aframe_obj.query[:-1]
-        actual = aframe_obj.__len__()
+        actual = len(aframe_obj)
         af.AFrame.send_request.assert_called_once_with(query)
 
         self.assertEqual(7, actual)
@@ -364,38 +332,35 @@ class TestBasicFunction(unittest.TestCase):
 
     def testMax(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
-        new_query = 'SELECT max(t.%s) FROM %s t;' % (aframe_obj.schema, aframe_obj._dataverse+'.'+aframe_obj._dataset)
 
         actual = aframe_obj.max()
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('max(id)', actual._schema)
-        self.assertEqual(new_query, actual._query)
+        self.assertEqual('SELECT max(t.id) FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
     def testMin(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
-        new_query = 'SELECT min(t.%s) FROM %s t;' % (aframe_obj.schema, aframe_obj._dataverse+'.'+aframe_obj._dataset)
 
         actual = aframe_obj.min()
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('min(id)', actual._schema)
-        self.assertEqual(new_query, actual._query)
+        self.assertEqual('SELECT min(t.id) FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
         self.assertEqual(expected._predicate, actual._predicate)
 
     def testAvg(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
-        new_query = 'SELECT avg(t.%s) FROM %s t;' % (aframe_obj.schema, aframe_obj._dataverse+'.'+aframe_obj._dataset)
-
+        
         actual = aframe_obj.avg()
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('avg(id)', actual._schema)
-        self.assertEqual(new_query, actual._query)
+        self.assertEqual('SELECT avg(t.id) FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -403,13 +368,12 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = 'test_other'
         opt = '='
-        schema = 't.%s %s \"%s\"' %(aframe_obj.schema, opt, other)
 
         actual = aframe_obj.binary_opt(other, opt)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id = "test_other"', actual._schema)
+        self.assertEqual('SELECT VALUE t.id = "test_other" FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -417,13 +381,12 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = None
         opt = '='
-        schema = 't.%s %s %s' % (aframe_obj.schema, opt, other)
-
+        
         actual = aframe_obj.binary_opt(other, opt)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id = None', actual._schema)
+        self.assertEqual('SELECT VALUE t.id = None FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
         
@@ -431,9 +394,8 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = 'test_other'
         opt = '='
-        schema = 't.%s %s \"%s\"' %(aframe_obj.schema, opt, other)
-        query = 'SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset)
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, query)
+        
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 't.id = "test_other"', 'SELECT VALUE t.id = "test_other" FROM test_dataverse.test_dataset t;')
         aframe_obj.binary_opt = MagicMock(return_value = expected)
 
         aframe_obj.binary_opt = MagicMock(return_value = expected)
@@ -441,8 +403,8 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj.binary_opt.assert_called_once_with(other, opt)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id = "test_other"', actual._schema)
+        self.assertEqual('SELECT VALUE t.id = "test_other" FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -450,9 +412,7 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = 'test_other'
         opt = '!='
-        schema = 't.%s %s \"%s\"' %(aframe_obj.schema, opt, other)
-        query = 'SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset)
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, query)
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 't.id != "test_other"', 'SELECT VALUE t.id != "test_other" FROM test_dataverse.test_dataset t;')
         aframe_obj.binary_opt = MagicMock(return_value = expected)
 
         aframe_obj.binary_opt = MagicMock(return_value = expected)
@@ -460,8 +420,8 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj.binary_opt.assert_called_once_with(other, opt)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id != "test_other"', actual._schema)
+        self.assertEqual('SELECT VALUE t.id != "test_other" FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -469,17 +429,16 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = 'test_other'
         opt = '>'
-        schema = 't.%s %s \"%s\"' %(aframe_obj.schema, opt, other)
-        query = 'SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset)
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, query)
+        
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 't.id > "test_other"', 'SELECT VALUE t.id > "test_other" FROM test_dataverse.test_dataset t;')
         aframe_obj.binary_opt = MagicMock(return_value = expected)
 
         actual = aframe_obj>other
         aframe_obj.binary_opt.assert_called_once_with(other, opt)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id > "test_other"', actual._schema)
+        self.assertEqual('SELECT VALUE t.id > "test_other" FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -487,17 +446,15 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = 'test_other'
         opt = '<'
-        schema = 't.%s %s \"%s\"' %(aframe_obj.schema, opt, other)
-        query = 'SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset)
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, query)
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 't.id < "test_other"', 'SELECT VALUE t.id < "test_other" FROM test_dataverse.test_dataset t;')
 
         aframe_obj.binary_opt = MagicMock(return_value = expected)
         actual = aframe_obj<other
         aframe_obj.binary_opt.assert_called_once_with(other, opt)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id < "test_other"', actual._schema)
+        self.assertEqual('SELECT VALUE t.id < "test_other" FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -505,17 +462,15 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = 'test_other'
         opt = '>='
-        schema = 't.%s %s \"%s\"' %(aframe_obj.schema, opt, other)
-        query = 'SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset)
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, query)
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 't.id >= "test_other"', 'SELECT VALUE t.id >= "test_other" FROM test_dataverse.test_dataset t;')
 
         aframe_obj.binary_opt = MagicMock(return_value = expected)
         actual = aframe_obj>=other
         aframe_obj.binary_opt.assert_called_once_with(other, opt)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id >= "test_other"', actual._schema)
+        self.assertEqual('SELECT VALUE t.id >= "test_other" FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -523,16 +478,14 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = 'test_other'
         opt = '<='
-        schema = 't.%s %s \"%s\"' %(aframe_obj.schema, opt, other)
-        query = 'SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset)
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, query)
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 't.id <= "test_other"', 'SELECT VALUE t.id <= "test_other" FROM test_dataverse.test_dataset t;')
 
         aframe_obj.binary_opt = MagicMock(return_value = expected)
         actual = aframe_obj<=other
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' %(schema, aframe_obj._dataverse+"."+aframe_obj._dataset), actual._query)
+        self.assertEqual('t.id <= "test_other"', actual._schema)
+        self.assertEqual('SELECT VALUE t.id <= "test_other" FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -540,12 +493,11 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = AFrameObj('other_datatverse', 'other_dataset', 'other_schema', 'other_query', 'other_predicate')
         op = 'test_op'
-        schema = '%s %s %s' % (aframe_obj._schema , op, other._schema)
         actual = aframe_obj.boolean_op(other, op)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE %s FROM %s t;' % (schema, aframe_obj._dataverse+'.'+aframe_obj._dataset), actual._query)
+        self.assertEqual('id test_op other_schema', actual._schema)
+        self.assertEqual('SELECT VALUE id test_op other_schema FROM test_dataverse.test_dataset t;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
     
@@ -553,10 +505,8 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = AFrameObj('other_datatverse', 'other_dataset', 'other_schema', 'other_query', 'other_predicate')
         op = 'AND'
-        schema = '%s %s %s' % (aframe_obj._schema , op, other._schema)
-        new_query = 'SELECT VALUE %s FROM %s t;' % (schema, aframe_obj._dataverse+'.'+aframe_obj._dataset)
 
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, new_query)
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 'id AND other_schema', 'SELECT VALUE id AND other_schema FROM test_dataverse.test_dataset t;')
         aframe_obj.boolean_op = MagicMock(return_value = expected)
         actual = aframe_obj & other
 
@@ -572,10 +522,7 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         other = AFrameObj('other_datatverse', 'other_dataset', 'other_schema', 'other_query', 'other_predicate')
         op = 'OR'
-        schema = '%s %s %s' % (aframe_obj._schema , op, other._schema)
-        new_query = 'SELECT VALUE %s FROM %s t;' % (schema, aframe_obj._dataverse+'.'+aframe_obj._dataset)
-
-        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, schema, new_query)
+        expected = AFrameObj(aframe_obj._dataverse, aframe_obj._dataset, 'id OR other_schema', 'SELECT VALUE id OR other_schema FROM test_dataverse.test_dataset t;')
         aframe_obj.boolean_op = MagicMock(return_value = expected)
         actual = aframe_obj | other
 
@@ -606,14 +553,14 @@ class TestBasicFunction(unittest.TestCase):
             aframe_obj.map(func)
 
     def testMap_PredicateIsNoneValuesAreStr(self):
-        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'test_schema', 'test_query;', None)
-        func = 'test_func'
+        aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;', None)
+        func = 'len'
         
         actual = aframe_obj.map(func, 'test_args1', 'test_args2', {'test_key': 'test_value'})
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('test_func(t.test_schema, "test_args1", "test_args2", {\'test_key\': \'test_value\'})', actual._schema)
-        self.assertEqual('SELECT VALUE test_func(t.test_schema, "test_args1", "test_args2", {\'test_key\': \'test_value\'}) FROM test_dataverse.test_dataset t;', actual._query)
+        self.assertEqual('len(t.id, "test_args1", "test_args2", {\'test_key\': \'test_value\'})', actual._schema)
+        self.assertEqual('SELECT VALUE len(t.id, "test_args1", "test_args2", {\'test_key\': \'test_value\'}) FROM test_dataverse.test_dataset t;', actual._query) ###Query needs more test
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -625,7 +572,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('test_func(t.test_schema, "test_args1", "test_args2", {\'test_key\': \'test_value\'})', actual._schema)
-        self.assertEqual('SELECT VALUE test_func(t.test_schema, "test_args1", "test_args2", {\'test_key\': \'test_value\'}) FROM test_dataverse.test_dataset t WHERE test_predicate;', actual._query)
+        self.assertEqual('SELECT VALUE test_func(t.test_schema, "test_args1", "test_args2", {\'test_key\': \'test_value\'}) FROM test_dataverse.test_dataset t WHERE test_predicate;', actual._query) ###Query needs more test
         self.assertEqual(None, actual._data)
         self.assertEqual('test_predicate', actual._predicate)
 
@@ -637,7 +584,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('test_func(t.test_schema, 1, 2, {\'test_key\': 3})', actual._schema)
-        self.assertEqual('SELECT VALUE test_func(t.test_schema, 1, 2, {\'test_key\': 3}) FROM test_dataverse.test_dataset t;', actual._query)
+        self.assertEqual('SELECT VALUE test_func(t.test_schema, 1, 2, {\'test_key\': 3}) FROM test_dataverse.test_dataset t;', actual._query) ###Query needs more test
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -649,7 +596,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('test_func(t.test_schema, 1, 2, {\'test_key\': 3})', actual._schema)
-        self.assertEqual('SELECT VALUE test_func(t.test_schema, 1, 2, {\'test_key\': 3}) FROM test_dataverse.test_dataset t WHERE test_predicate;', actual._query)
+        self.assertEqual('SELECT VALUE test_func(t.test_schema, 1, 2, {\'test_key\': 3}) FROM test_dataverse.test_dataset t WHERE test_predicate;', actual._query) ###Query needs more test
         self.assertEqual(None, actual._data)
         self.assertEqual('test_predicate', actual._predicate)
 
@@ -801,8 +748,8 @@ class TestBasicFunction(unittest.TestCase):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'test_schema', 'test_query;', 'test_predicate')
         af.AFrame.send_request = MagicMock(return_value = [5])
         actual = aframe_obj.get_count()
-
-        af.AFrame.send_request.assert_called_once_with('SELECT VALUE count(*) FROM (%s) t;' % aframe_obj.query[:-1])
+        
+        af.AFrame.send_request.assert_called_once_with('SELECT VALUE count(*) FROM (test_query) t;')
         self.assertEqual(5, actual)
         
     def testSortValue_ByIsStrAscendingIsTrue(self):
@@ -834,7 +781,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('ORDER BY [\'test_by1\', \'test_by2\', \'test_by3\']', actual._schema)
-        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY , t.test_by2, t.test_by3;', actual._query)
+        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY t.test_by2, t.test_by3;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
@@ -845,31 +792,31 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('ORDER BY [\'test_by1\', \'test_by2\', \'test_by3\']', actual._schema)
-        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY , t.test_by2, t.test_by3 DESC;', actual._query)
+        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY t.test_by2, t.test_by3 DESC;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
     def testSortValue_ByIsNdarrayAscendingIsTrue(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'test_schema', 'test_query;', 'test_predicate')
-        expected_schema = 'ORDER BY %s' % np.array([['attr1','attr2'],['attr3','attr4']])
-        actual = aframe_obj.sort_values(np.array([['attr1','attr2'],['attr3','attr4']]), True)
+        expected_schema = 'ORDER BY %s' % np.array(['attr1','attr2'])
+        actual = aframe_obj.sort_values(np.array(['attr1','attr2']), True)
 
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(expected_schema, actual._schema)
-        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY , t.[\'attr3\' \'attr4\'];', actual._query)
+        self.assertEqual('ORDER BY [\'attr1\' \'attr2\']', actual._schema)
+        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY t.attr2;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
     def testSortValue_ByIsNdarrayAscendingIsFalse(self):
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'test_schema', 'test_query;', 'test_predicate')
-        expected_schema = 'ORDER BY %s' % np.array([['attr1','attr2'],['attr3','attr4']])
-        actual = aframe_obj.sort_values(np.array([['attr1','attr2'],['attr3','attr4']]), False)
+        expected_schema = 'ORDER BY %s' % np.array(['attr1','attr2'])
+        actual = aframe_obj.sort_values(np.array(['attr1','attr2']), False)
 
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(expected_schema, actual._schema)
-        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY , t.[\'attr3\' \'attr4\'] DESC;', actual._query)
+        self.assertEqual('ORDER BY [\'attr1\' \'attr2\']', actual._schema)
+        self.assertEqual('SELECT VALUE t FROM (test_query) t ORDER BY t.attr2 DESC;', actual._query)
         self.assertEqual(None, actual._data)
         self.assertEqual(None, actual._predicate)
 
