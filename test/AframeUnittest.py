@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, Mock, call
 import urllib.parse
 import urllib.request
 from aframe.aframe import AFrame, AFrameObj, OrderedAFrame
@@ -59,6 +59,29 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(actual.iloc[2].equals(row2))
         self.assertTrue(actual.iloc[3].equals(row3))
         self.assertTrue(actual.iloc[4].equals(row4))
+
+    @patch.object(AFrame, 'get_dataset')
+    def testSimpleHead_LT5(self, mock_init):
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                         {"attr1":3, "attr2":"str3"}]
+        af = AFrame('test_dataverse', 'test_dataset')
+        af.send_request = MagicMock(return_value = json_response)
+
+        actual = af.head()
+
+        af.send_request.assert_called_once_with('SELECT VALUE t FROM test_dataverse.test_dataset t limit 5;')
+        self.assertEqual(len(actual), 3)
+        row0 = pd.Series([1, 'str1'], index=['attr1', 'attr2'])
+        row1 = pd.Series([2, 'str2'], index=['attr1', 'attr2'])
+        row2 = pd.Series([3, 'str3'], index=['attr1', 'attr2'])
+        self.assertTrue(actual.iloc[0].equals(row0))
+        self.assertTrue(actual.iloc[1].equals(row1))
+        self.assertTrue(actual.iloc[2].equals(row2))
+
+    @patch.object(AFrame, 'get_dataset')
+    def testHead_RecordsLTDefault(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        
 
     @patch.object(AFrame, 'get_dataset')
     def testHeadWithSample(self, mock_init):
@@ -153,7 +176,7 @@ class TestBasicFunction(unittest.TestCase):
 
         sample = 5
         dataset = af._dataverse+'.'+af._dataset
-        query = 'SELECT VALUE t FROM %s t LIMIT %d;' % (dataset, sample)
+        query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
         actual = af.toPandas(sample)
 
         af.send_request.assert_called_once_with(query)
@@ -170,6 +193,32 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(df.loc[2].equals(row2))
         self.assertTrue(df.loc[3].equals(row3))
         self.assertTrue(df.loc[4].equals(row4))
+
+    @patch.object(AFrame, 'get_dataset')
+    def testToPandas_TotalRecordsLTSample(self, mock_init):
+        from pandas.io import json
+        
+        json_response =  [{"attr1":1, "attr2":"str1"}, {"attr1":2, "attr2":"str2"},
+                         {"attr1":3, "attr2":"str3"}]
+        
+        af = AFrame('test_dataverse', 'test_dataset')
+        af.send_request = MagicMock(return_value = json_response)
+
+        sample = 5
+        dataset = af._dataverse+'.'+af._dataset
+        query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        actual = af.toPandas(sample)
+
+        af.send_request.assert_called_once_with(query)
+        self.assertEqual(len(actual), 3)
+        data = json.read_json(json.dumps(actual))
+        df = pd.DataFrame(data)
+        row0 = pd.Series([1, 'str1'], index=['attr1', 'attr2'])
+        row1 = pd.Series([2, 'str2'], index=['attr1', 'attr2'])
+        row2 = pd.Series([3, 'str3'], index=['attr1', 'attr2'])
+        self.assertTrue(df.loc[0].equals(row0))
+        self.assertTrue(df.loc[1].equals(row1))
+        self.assertTrue(df.loc[2].equals(row2))
 
     @patch.object(AFrame, 'get_dataset')
     def testToPandas_SampleGTZeroQueryNotNone(self, mock_init):
@@ -241,10 +290,11 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('get_object_fields(t)', actual.schema)
-        self.assertEqual('SELECT VALUE get_object_fields(t) FROM SELECT VALUE t FROM test_dataverse.test_dataset t t;', actual.query)
+        self.assertEqual('SELECT VALUE get_object_fields(t) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t) t;', actual.query)
 
     @patch.object(AFrame, 'get_dataset')
-    def testUnnest_ColIsAFrameObjAppendedIsTrueNotName(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testUnnest_ColIsAFrameObjAppendedIsTrueNotName(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         dataset = af._dataverse + '.' + af._dataset
         name = None
@@ -266,35 +316,38 @@ class TestBasicFunction(unittest.TestCase):
     def testUnnest_ColIsStrMetaIsList(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         
-        actual = af.unnest('something', ['str1', 'str2', 'str3'])
+        actual = af.unnest('something', ['attr1', 'attr2', 'attr3'])
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('t.str1, t.str2, t.str3, t.something', actual._schema)
-        self.assertEqual('SELECT t.str1, t.str2, t.str3, something FROM test_dataverse.test_dataset t unnest t.something something;', actual._query)
+        self.assertEqual('t.attr1, t.attr2, t.attr3, t.something', actual._schema)
+        self.assertEqual('SELECT t.attr1, t.attr2, t.attr3, something FROM test_dataverse.test_dataset t unnest t.something something;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testUnnest_ColIsStrMetaIsNdarray(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
 
-        actual = af.unnest('something', np.array([['attr1','attr2'],['attr3','attr4']]))
+        actual = af.unnest('something', np.array(['attr1','attr2']))
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('t.[\'attr1\' \'attr2\'], t.[\'attr3\' \'attr4\'], t.something', actual._schema)
-        self.assertEqual('SELECT t.[\'attr1\' \'attr2\'], t.[\'attr3\' \'attr4\'], something FROM test_dataverse.test_dataset t unnest t.something something;', actual._query)
+        self.assertEqual('t.attr1, t.attr2, t.something', actual._schema)
+        self.assertEqual('SELECT t.attr1, t.attr2, something FROM test_dataverse.test_dataset t unnest t.something something;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
-    def testUnnest_ColIsADrameObjAppendedIsFalse(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testUnnest_ColIsADrameObjAppendedIsFalse(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
-        col = AFrameObj('another_dataverse', 'another_dataset', 'AFrameObj_schema', 'AFrameObj_query;')
+        col = AFrameObj('another_dataverse', 'another_dataset', 'AFrameObj_schema', 'SELECT VALUE t FROM another_dataverse.another_dataset t;')
 
         actual = af.unnest(col, None, False, None)
+
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('unnest(AFrameObj_schema)', actual._schema)
-        self.assertEqual('SELECT VALUE e FROM (AFrameObj_query) t unnest t e;', actual._query)
+        self.assertEqual('SELECT VALUE e FROM (SELECT VALUE t FROM another_dataverse.another_dataset t) t unnest t e;', actual._query) ###wrong query (syntax error) (need help ....)
 
     @patch.object(AFrame, 'get_dataset')
-    def testUnnest_ColIsAFrameObjAppendedIsTrue(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testUnnest_ColIsAFrameObjAppendedIsTrue(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         col = AFrameObj('another_dataverse', 'another_dataset', 'AFrameObj_schema', 'AFrameObj_query;')
 
@@ -305,7 +358,8 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('SELECT u name, t.* FROM test_dataverse.test_dataset t unnest t.AFrameObj_schema u;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
-    def testToAFrameObj_QueryIsNone(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testToAFrameObj_QueryIsNone(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset') 
         expected = AFrameObj('test_dataverse', 'test_dataset', None, None)
         actual = af.toAFrameObj()
@@ -319,41 +373,46 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual(None, actual.schema)
-        self.assertEqual('SELECT VALUE get_object_fields(t) FROM test_dataverse.test_dataset t', actual.query)
+        self.assertEqual('SELECT VALUE get_object_fields(t) FROM test_dataverse.test_dataset t;', actual.query) ###semicolon missed
 
     @patch.object(AFrame, 'get_dataset')
-    def testGetColumnCount_OtherIsNotAFrameObj(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testGetColumnCount_OtherIsNotAFrameObj(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         with self.assertRaises(ValueError):
             af.get_column_count(None)
 
     @patch.object(AFrame, 'get_dataset')
-    def testGetColumnCount_OtherIsAFrameObj(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testGetColumnCount_OtherIsAFrameObj(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
         
         AFrame.send_request = MagicMock(return_value = [5])
         actual = af.get_column_count(aframe_obj)
-        af.send_request.assert_called_once_with('SELECT VALUE count(*) FROM (%s) t;' % aframe_obj.query[:-1])
+        af.send_request.assert_called_once_with('SELECT VALUE count(*) FROM (SELECT VALUE t.id FROM test_dataverse.test_dataset t) t;')
         self.assertEqual(5, actual)
 
     @patch.object(AFrame, 'get_dataset')
-    def testWithColumn_NameIsNotStr(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testWithColumn_NameIsNotStr(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', None, None)
         with self.assertRaises(ValueError):
             af.withColumn(None, aframe_obj)
 
     @patch.object(AFrame, 'get_dataset')
-    def testWithColumn_ColIsNotAFrameObj(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testWithColumn_ColIsNotAFrameObj(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', None, None)
         with self.assertRaises(ValueError):
             af.withColumn('id', None)
 
     @patch.object(AFrame, 'get_dataset')
-    def testWithColumn_NameIsStrColIsAFrameObj(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testWithColumn_NameIsStrColIsAFrameObj(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
 
@@ -393,7 +452,8 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('Empty AsterixDB DataFrame', actual)
 
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_KeyIsAFrameObjQueryIsNone(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testGetItem_KeyIsAFrameObjQueryIsNone(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
         actual = af[aframe_obj]
@@ -404,12 +464,13 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t WHERE t.id>0;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_KeyIsAFrameObjQueryIsNotNone(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testGetItem_KeyIsAFrameObjQueryIsNotNone(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         af.query = 'af_query;'
         key = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
         dataset = af._dataverse + '.' + af._dataset
-        new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, af.query[:-1], key.schema) ##
+        new_query = 'SELECT VALUE t FROM (%s) t WHERE %s;' % (dataset, af.query[:-1], key.schema) ###string format wrong
         expected = AFrameObj(af._dataverse, af._dataset, key.schema, new_query)
         actual = af[key]
 
@@ -419,7 +480,8 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual(expected._query, actual._query)
 
     @patch.object(AFrame, 'get_dataset')
-    def testGetItem_KeyIsStrQueryIsNone(self, mock_init):
+    @patch('aframe.aframeObj.AFrameObj')
+    def testGetItem_KeyIsStrQueryIsNone(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
 
         expected = AFrameObj('test_dataverse', 'test_dataset', 'id', 'SELECT VALUE t.id FROM test_dataverse.test_dataset t;')
@@ -439,38 +501,41 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('id', actual._schema)
-        self.assertEqual('SELECT VALUE t.id FROM (SELECT VALUE t.* FROM test_dataverse.test_dataset t) t;', actual._query)
+        self.assertEqual('SELECT VALUE t.id FROM (SELECT VALUE t FROM test_dataverse.test_dataset t) t;', actual._query) ##original: t.* => * cannot be recognized
 
     @patch.object(AFrame, 'get_dataset')
     def testGetItem_KeyIsListQueryIsNone(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
 
-        actual = af[[1,2,3,4,5]]
+        actual = af[['attr1','attr2','attr3']]
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual([1,2,3,4,5], actual._schema)
-        self.assertEqual('SELECT t.1, t.2, t.3, t.4, t.5 FROM test_dataverse.test_dataset t;', actual._query)
+        self.assertEqual(['attr1','attr2','attr3'], actual._schema)
+        self.assertEqual('SELECT t.attr1, t.attr2, t.attr3 FROM test_dataverse.test_dataset t;', actual._query) 
 
     @patch.object(AFrame, 'get_dataset')
     def testGetItem_KeyIsListQueryIsNotNone(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         af.query = 'SELECT t.* FROM %s t;' % 'test_dataverse.test_dataset'
 
-        actual = af[[1,2,3,4,5]]
+        actual = af[['attr1','attr2','attr3']]
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual([1,2,3,4,5], actual._schema)
-        self.assertEqual('SELECT t.1, t.2, t.3, t.4, t.5 FROM (SELECT t.* FROM test_dataverse.test_dataset t) t;', actual._query)
+        self.assertEqual(['attr1','attr2','attr3'], actual._schema)
+        self.assertEqual('SELECT t.attr1, t.attr2, t.attr3 FROM (SELECT t.* FROM test_dataverse.test_dataset t) t;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testGetItem_KeyIsNdarrayQueryIsNone(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
 
-        actual = af[np.array([[1,2],[3,4]])]
+        actual = af[np.array(['attr1','attr2'])]
+        print(type(actual._schema))
+        print(actual._schema == ['attr1', 'attr2'])
+        print(np.array(['attr1','attr2']))
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(np.array([[1,2],[3,4]]).all(), actual._schema.all())
-        self.assertEqual('SELECT t.[1 2], t.[3 4] FROM test_dataverse.test_dataset t;', actual._query)
+        self.assertEqual(['attr1' 'attr2'], actual._schema) ####Error in this line => cannot proceed ...
+        self.assertEqual('SELECT t.attr1, t.attr2 FROM test_dataverse.test_dataset t;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testSetItem_KeyIsNotStr(self, mock_init):
@@ -491,12 +556,14 @@ class TestBasicFunction(unittest.TestCase):
 
     @patch.object(AFrame, 'get_dataset')
     def testFlatten(self, mock_init):
-        af = AFrame('test_dataverse', 'test_dataset')
+        af = AFrame('test_dataverse', 'test_dataset', query = 'test_query') 
         actual = af.flatten()
+
+        self.assertEqual(type(actual), NestedAFrame)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual(af.columns, actual.columns)
-        self.assertEqual(af.query, actual._query)
+        self.assertEqual('test_query', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testColumns(self, mock_init):
@@ -596,12 +663,11 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('test_dataverse.test_dataset l JOIN other_dataverse.other_dataset r on l.something=r.anotherthing', actual._schema)
-        self.assertEqual('SELECT VALUE object_merge(l,r) FROM test_dataverse.test_dataset l JOIN other_dataverse.other_dataset r on l.something /*+ indexnl */ = r.anotherthing;', actual._query)
-
+        self.assertEqual('SELECT VALUE object_merge(l,r) FROM test_dataverse.test_dataset l JOIN other_dataverse.other_dataset r on l.something /*+ indexnl */ = r.anotherthing;', actual._query) 
     @patch.object(AFrame, 'get_dataset')
     def testJoin_SelfQueryIsNotNoneOtherQueryInNoneLeftonNotEqualRighton(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
-        af.query = 'af_query'
+        af.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
         other = AFrame('other_dataverse', 'other_dataset')
         how = 'inner'
         lsuffix = 'l'
@@ -613,14 +679,14 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.join(other, left_on, right_on, how, lsuffix, rsuffix)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('(af_quer) l JOIN other_dataverse.other_dataset r on l.something=r.anotherthing', actual._schema)
-        self.assertEqual('SELECT VALUE object_merge(l,r) FROM (af_quer) l JOIN other_dataverse.other_dataset r on l.something /*+ indexnl */ = r.anotherthing;', actual._query)
+        self.assertEqual('(SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN other_dataverse.other_dataset r on l.something=r.anotherthing', actual._schema)
+        self.assertEqual('SELECT VALUE object_merge(l,r) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN other_dataverse.other_dataset r on l.something /*+ indexnl */ = r.anotherthing;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testJoin_SelfQueryIsNoneOtherQueryIsNotNoneLeftonNotEqualRighton(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         other = AFrame('other_dataverse', 'other_dataset')
-        other.query = 'other_query'
+        other.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
         how = 'inner'
         lsuffix = 'l'
         rsuffix = 'r'
@@ -631,15 +697,15 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.join(other, left_on, right_on, how, lsuffix, rsuffix)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('test_dataverse.test_dataset l JOIN (other_quer) r on l.something=r.anotherthing', actual._schema)
-        self.assertEqual('SELECT VALUE object_merge(l,r) FROM test_dataverse.test_dataset l JOIN (other_quer) r on l.something /*+ indexnl */ = r.anotherthing;', actual._query)
+        self.assertEqual('test_dataverse.test_dataset l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something=r.anotherthing', actual._schema)
+        self.assertEqual('SELECT VALUE object_merge(l,r) FROM test_dataverse.test_dataset l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something /*+ indexnl */ = r.anotherthing;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testJoin_SelfQueryIsNotNoneOtherQueryIsNotNoneLeftOnNotEqualRighton(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         other = AFrame('other_dataverse', 'other_dataset')
-        af.query = 'af_query'
-        other.query = 'other_query'
+        af.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
+        other.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
         how = 'inner'
         lsuffix = 'l'
         rsuffix = 'r'
@@ -650,8 +716,8 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.join(other, left_on, right_on, how, lsuffix, rsuffix)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('(af_quer) l JOIN (other_quer) r on l.something=r.anotherthing', actual._schema)
-        self.assertEqual('SELECT VALUE object_merge(l,r) FROM (af_quer) l JOIN (other_quer) r on l.something /*+ indexnl */ = r.anotherthing;', actual._query)
+        self.assertEqual('(SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something=r.anotherthing', actual._schema)
+        self.assertEqual('SELECT VALUE object_merge(l,r) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something /*+ indexnl */ = r.anotherthing;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testJoin_SelfQueryIsNoneOtherQueryIsNoneLeftonEqualRighton(self, mock_init):
@@ -673,7 +739,7 @@ class TestBasicFunction(unittest.TestCase):
     @patch.object(AFrame, 'get_dataset')
     def testJoin_SelfQueryIsNotNoneOtherQueryIsNoneLeftonEqualRighton(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
-        af.query = 'af_query'
+        af.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
         other = AFrame('other_dataverse', 'other_dataset')
         how = 'inner'
         lsuffix = 'l'
@@ -685,14 +751,14 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.join(other, left_on, right_on, how, lsuffix, rsuffix)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('(af_quer) l JOIN other_dataverse.other_dataset r on l.something=r.something', actual._schema)
-        self.assertEqual('SELECT l,r from (af_quer) l JOIN other_dataverse.other_dataset r on l.something /*+ indexnl */ = r.something;', actual._query)
+        self.assertEqual('(SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN other_dataverse.other_dataset r on l.something=r.something', actual._schema)
+        self.assertEqual('SELECT l,r from (SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN other_dataverse.other_dataset r on l.something /*+ indexnl */ = r.something;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testJoin_SelfQueryIsNoneOtherQueryIsNotNoneLeftonEqualRighton(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         other = AFrame('other_dataverse', 'other_dataset')
-        other.query = 'other_query'
+        other.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
         how = 'inner'
         lsuffix = 'l'
         rsuffix = 'r'
@@ -703,15 +769,15 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.join(other, left_on, right_on, how, lsuffix, rsuffix)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('test_dataverse.test_dataset l JOIN (other_quer) r on l.something=r.something', actual._schema)
-        self.assertEqual('SELECT l,r from test_dataverse.test_dataset l JOIN (other_quer) r on l.something /*+ indexnl */ = r.something;', actual._query)
+        self.assertEqual('test_dataverse.test_dataset l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something=r.something', actual._schema)
+        self.assertEqual('SELECT l,r from test_dataverse.test_dataset l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something /*+ indexnl */ = r.something;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testJoin_SelfQueryIsNotNoneOtherQueryIsNotNoneLeftonEqualRighton(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
         other = AFrame('other_dataverse', 'other_dataset')
-        af.query = 'af_query'
-        other.query = 'other_query'
+        af.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
+        other.query = 'SELECT VALUE t FROM test_dataverse.test_dataset t;'
         how = 'inner'
         lsuffix = 'l'
         rsuffix = 'r'
@@ -722,14 +788,16 @@ class TestBasicFunction(unittest.TestCase):
         actual = af.join(other, left_on, right_on, how, lsuffix, rsuffix)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual('(af_quer) l JOIN (other_quer) r on l.something=r.something', actual._schema)
-        self.assertEqual('SELECT l,r from (af_quer) l JOIN (other_quer) r on l.something /*+ indexnl */ = r.something;', actual._query)
+        self.assertEqual('(SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something=r.something', actual._schema)
+        self.assertEqual('SELECT l,r from (SELECT VALUE t FROM test_dataverse.test_dataset t) l JOIN (SELECT VALUE t FROM test_dataverse.test_dataset t) r on l.something /*+ indexnl */ = r.something;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
-    def testGroupBy(self, mock_init):
+    @patch('aframe.groupby.AFrameGroupBy')
+    def testGroupBy(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         actual = af.groupby('by_something')
 
+        self.assertIsInstance(actual, AFrameGroupBy)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('by_something', actual._by)
@@ -765,7 +833,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('ORDER BY [\'attri1\', \'attri2\', \'attri3\']', actual._schema)
-        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY , t.attri2, t.attri3;', actual._query)
+        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY t.attri2, t.attri3;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
     def testSortValues_ByIsListAscendingIsFalse(self, mock_init):
@@ -775,31 +843,31 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('ORDER BY [\'attri1\', \'attri2\', \'attri3\']', actual._schema)
-        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY , t.attri2, t.attri3 DESC;', actual._query)
+        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY t.attri2, t.attri3 DESC;', actual._query) ####query
 
     @patch.object(AFrame, 'get_dataset')
     def testSortValues_ByIsNdarrayAscendingIsTrue(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
-        by = np.array([['attr1', 'attr2'],['attr3', 'attr4']])
+        by = np.array(['attr2', 'attr3', 'attr4'])
         schema = 'ORDER BY %s' % by
         
         actual = af.sort_values(by, True)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY , t.[\'attr3\' \'attr4\'];', actual._query)
+        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY t.attr3, t.attr4;', actual._query) ##query
 
     @patch.object(AFrame, 'get_dataset')
     def testSortValues_ByIsNdarrayAscendingIsFalse(self, mock_init):
         af = AFrame('test_dataverse', 'test_dataset')
-        by = np.array([['attr1', 'attr2'],['attr3', 'attr4']])
+        by = np.array(['attr3', 'attr4'])
         schema = 'ORDER BY %s' % by
 
         actual = af.sort_values(by, False)
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual(schema, actual._schema)
-        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY , t.[\'attr3\' \'attr4\'] DESC;', actual._query)
+        self.assertEqual('SELECT VALUE t FROM test_dataverse.test_dataset t ORDER BY t.attr4 DESC;', actual._query) ##query
 
     @patch.object(AFrame, 'get_dataset')
     def testRolling_WindowIsNotNoneNotWindow(self, mock_init):
@@ -818,7 +886,8 @@ class TestBasicFunction(unittest.TestCase):
             af.rolling(window, on)
 
     @patch.object(AFrame, 'get_dataset')
-    def testRolling_NormalCase(self, mock_init):
+    @patch('aframe.window.Window')
+    def testRolling_NormalCase(self, mock_init, mock_class):
         af = AFrame('test_dataverse', 'test_dataset')
         window = Window(None, None, None)
         on = None
@@ -840,92 +909,6 @@ class TestBasicFunction(unittest.TestCase):
         AFrame.send.assert_called_once_with('DROP DATASET test_dataverse.test_dataset;')
         self.assertEqual('something', actual)
 
-    def testSendRequest(self):
-        dataset = 'test_dataverse'+'.'+'test_dataset'
-        query = 'SELECT VALUE t FROM %s t ' % dataset
-        host = 'http://localhost:19002/query/service'
-        data = dict()
-        data['statement'] = query
-        data = urllib.parse.urlencode(data).encode('utf-8')
-
-        read_return = json.dumps({'results': [5], 'status': [5]}) #why always returns [5]
-        #print(read_return)
-        urllib.request.urlopen = MagicMock()
-        urllib.request.urlopen.read = MagicMock(return_value = read_return)
-
-        #expected = json.loads(read_return)['results']
-        #print(expected)
-        #print(type(expected))
-        actual = AFrame.send_request(query)
-        #print(expected, actual)
-        urllib.request.urlopen.assert_called_once_with(host, data)
-        urllib.request.urlopen.read.assert_called_once()
-        #self.assertEqual(expected, actual)
-    
-    def testSend(self):
-        dataset = 'test_dataverse'+'.'+'test_dataset'
-        query = 'SELECT VALUE t FROM %s t ' % dataset
-        host = 'http://localhost:19002/query/service'
-        data = dict()
-        data['statement'] = query
-        data = urllib.parse.urlencode(data).encode('utf-8')
-
-        read_return = json.dumps({'results': [5], 'status': [5]}) #why always returns [5]
-        #print(read_return)
-        urllib.request.urlopen = MagicMock()
-        urllib.request.urlopen.read = MagicMock(return_value = read_return)
-
-        #expected = json.loads(read_return)['status']
-        #print(expected)
-        #print(type(expected))
-        actual = AFrame.send_request(query)
-        #print(expected, actual)
-        urllib.request.urlopen.assert_called_once_with(host, data)
-        urllib.request.urlopen.read.assert_called_once()
-        #self.assertEqual(expected, actual)
-
-    
-    def testSendPerf(self):
-        dataset = 'test_dataverse'+'.'+'test_dataset'
-        query = 'SELECT VALUE t FROM %s t ' % dataset
-        host = 'http://localhost:19002/query/service'
-        data = dict()
-        data['statement'] = query
-        data = urllib.parse.urlencode(data).encode('utf-8')
-
-        read_return = json.dumps({'results': [5], 'status': [5]}) #why always returns [5]
-        #print(read_return)
-        urllib.request.urlopen = MagicMock()
-        urllib.request.urlopen.read = MagicMock(return_value = read_return)
-
-        #expected = read_return
-        #print(expected)
-        #print(type(expected))
-        actual = AFrame.send_request(query)
-        #print(expected, actual)
-        urllib.request.urlopen.assert_called_once_with(host, data)
-        urllib.request.urlopen.read.assert_called_once()
-        #self.assertEqual(expected, actual)
-
-    #create
-    '''@patch.object(AFrame, 'get_dataset')
-    def testCreate(self, mock_init):
-        af = AFrame('test_dataverse', 'test_dataset')
-        path = 'test_path'
-        expected_query = ''
-        expected_query = 'create %s;\n' % af._dataverse
-        expected_query += 'use %s;\n' % af._dataverse
-        expected_query += 'CREATE TYPE Schema AS open{ \n' \
-                 'id: int64};\n'
-        expected_query += 'CREATE DATASET %s(Schema) PRIMARY KEY id;\n' % af._dataset
-        expected_query += 'LOAD DATASET %s USING localfs\n ' \
-                 '((\"path\"=\"127.0.0.1://%s\"),(\"format\"=\"adm\"));\n' % (af._dataset, path)
-        print()
-        print(expected_query)
-
-        af.create(path)
-        print(af.data)'''
-
     def testGetDataset_IsOpenIsTrue(self):
         response = [{'Derived': {'Record': {'IsOpen': True,
                                             'Fields': [{'FieldName': 'test_fieldName1',
@@ -940,10 +923,7 @@ class TestBasicFunction(unittest.TestCase):
         af.send_request = MagicMock(return_value = response)
         expected_columns = [{'test_fieldName1': 'test_fieldType1'}, {'test_fieldName2': 'test_fieldType2'}]
 
-        query = 'SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
-                'WHERE ds.DatasetName = \'%s\' AND ds.DatatypeName = dt.DatatypeName;' % 'test_dataset'
-
-        AFrame.send_request.assert_called_with(query)
+        AFrame.send_request.assert_called_with('SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt WHERE ds.DatasetName = \'test_dataset\' AND ds.DatatypeName = dt.DatatypeName;')
         self.assertEqual(af._datatype, 'open')
         self.assertEqual(af._datatype_name, 'test_datatypeName')
         self.assertEqual(af._columns, expected_columns)
@@ -962,11 +942,9 @@ class TestBasicFunction(unittest.TestCase):
         af = AFrame('test_dataverse', 'test_dataset')
         af.send_request = MagicMock(return_value = response)
 
-        query = 'SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
-                'WHERE ds.DatasetName = \'%s\' AND ds.DatatypeName = dt.DatatypeName;' % 'test_dataset'
         expected_columns = [{'test_fieldName1': 'test_fieldType1'}, {'test_fieldName2': 'test_fieldType2'}]
 
-        AFrame.send_request.assert_called_with(query)
+        AFrame.send_request.assert_called_with('SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt WHERE ds.DatasetName = \'test_dataset\' AND ds.DatatypeName = dt.DatatypeName;')
         self.assertEqual(af._datatype, 'close')
         self.assertEqual(af._datatype_name, 'test_datatypeName')
         self.assertEqual(af._columns, expected_columns)
