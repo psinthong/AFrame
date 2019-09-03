@@ -501,7 +501,7 @@ class TestBasicFunction(unittest.TestCase):
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
         self.assertEqual('id', actual._schema)
-        self.assertEqual('SELECT VALUE t.id FROM (SELECT VALUE t FROM test_dataverse.test_dataset t) t;', actual._query) ##original: t.* => * cannot be recognized
+        self.assertEqual('SELECT VALUE t.id FROM (SELECT t.* FROM test_dataverse.test_dataset t) t;', actual._query) ##original: VALUE t.* => * cannot be recognized
 
     @patch.object(AFrame, 'get_dataset')
     def testGetItem_KeyIsListQueryIsNone(self, mock_init):
@@ -529,12 +529,9 @@ class TestBasicFunction(unittest.TestCase):
         af = AFrame('test_dataverse', 'test_dataset')
 
         actual = af[np.array(['attr1','attr2'])]
-        print(type(actual._schema))
-        print(actual._schema == ['attr1', 'attr2'])
-        print(np.array(['attr1','attr2']))
         self.assertEqual('test_dataverse', actual._dataverse)
         self.assertEqual('test_dataset', actual._dataset)
-        self.assertEqual(['attr1' 'attr2'], actual._schema) ####Error in this line => cannot proceed ...
+        self.assertTrue(np.array_equal(np.array(['attr1','attr2']), actual._schema))
         self.assertEqual('SELECT t.attr1, t.attr2 FROM test_dataverse.test_dataset t;', actual._query)
 
     @patch.object(AFrame, 'get_dataset')
