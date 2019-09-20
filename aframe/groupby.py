@@ -1,13 +1,16 @@
 import pandas as pd
 import pandas.io.json as json
-import aframe as af
+import urllib.parse
+import urllib.request
+import urllib.error
 
 
 class AFrameGroupBy:
 
-    def __init__(self, dataverse, dataset, by=None):
+    def __init__(self, dataverse, dataset, server_address, by=None):
         self._dataverse = dataverse
         self._dataset = dataset
+        self._server_address = server_address
         self._by = by
         self._schema = None
         self._query = self.get_initial_query(by)
@@ -17,9 +20,9 @@ class AFrameGroupBy:
     def query(self):
         return str(self._query)
 
-    def toAframe(self):
-        dataverse, dataset = self.get_dataverse()
-        return af.AFrame(dataverse, dataset)
+    # def toAframe(self):
+    #     dataverse, dataset = self.get_dataverse()
+    #     return af.AFrame(dataverse, dataset)
 
     def get_dataverse(self):
         sub_query = self.query.split("from")
@@ -40,7 +43,7 @@ class AFrameGroupBy:
 
     def get_group(self, key):
         new_query = 'SELECT VALUE t.grps FROM (%s) t WHERE grp_id=%s;' % (self.query[:-1], str(key))
-        results = json.dumps(af.AFrame.send_request(new_query)[0])
+        results = json.dumps(self.send_request(new_query)[0])
         grp = json.read_json(results)['grp']
         df = pd.DataFrame(grp.tolist())
         return df
@@ -51,7 +54,7 @@ class AFrameGroupBy:
         new_query = 'SELECT grp_id AS %s, array_count(grps) AS count FROM %s t ' \
                     'GROUP BY t.%s AS grp_id GROUP AS grps(t AS grp);' % (self._by, dataset, self._by)
         # new_query = 'SELECT VALUE count(*) FROM (%s) t;' % self.query[:-1]
-        results = pd.DataFrame(af.AFrame.send_request(new_query))
+        results = pd.DataFrame(self.send_request(new_query))
         return results
 
     # def agg(self, func):
@@ -66,13 +69,26 @@ class AFrameGroupBy:
         if func == 'count':
             query = 'SELECT grp_id, count(%s) AS %s FROM %s t ' % (attr, func, dataset)
             query += self._schema + ';'
-            results = json.dumps(af.AFrame.send_request(query))
+            results = json.dumps(self.send_request(query))
             df = pd.DataFrame(data=json.read_json(results), columns=['grp_id', func])
             return df
         if func == 'max':
             query = 'SELECT grp_id, max(t.%s) AS %s FROM %s t ' % (attr, func, dataset)
             query += self._schema+';'
-            results = json.dumps(af.AFrame.send_request(query))
+            results = json.dumps(self.send_request(query))
             df = pd.DataFrame(data=json.read_json(results), columns=['grp_id', func])
 
             return df
+
+    def send_request(self, query: str):
+        host = self._server_address+'/query/service'
+        data = dict()
+        data['statement'] = query
+        data = urllib.parse.urlencode(data).encode('utf-8')
+        try:
+            handler = urllib.request.urlopen(host,data)
+            result = json.loads(handler.read())
+            return result['results']
+
+        except urllib.error.URLError as e:
+            raise Exception('The following error occured: %s.' %str(e.reason))

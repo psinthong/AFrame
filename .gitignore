@@ -7,13 +7,7 @@ testSpark.py
 *_perf.py
 *_perf_2.py
 prep.py
-Lecture5-W19.ipynb
-Weekly_Meetings.ipynb
-Meeting 07-01.ipynb
-Pandas-On-Ray.ipynb
-PySpark VS. PandasDF.ipynb
-modin-exp.ipynb
-Koalas.ipynb
+*.ipynb
 /pipelines
 /data
 /model

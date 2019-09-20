@@ -56,6 +56,26 @@ class TestBasicFunction(unittest.TestCase):
         self.assertTrue(actual.iloc[3].equals(row3))
         self.assertTrue(actual.iloc[4].equals(row4))
 
+    @patch.object(AFrame, 'get_dataset')
+    def testGetItem_NormalCase1(self, mock_init):
+        af = AFrame('test_dataverse', 'test_dataset')
+        # aframe_obj = AFrameObj('test_dataverse', 'test_dataset', 't.id>0')
+        dataset = af._dataverse + '.' + af._dataset
+        key = 'col1'
+        query = 'SELECT VALUE t.%s FROM %s t;' % (key, dataset)
+        # expected = AFrameObj('test_dataverse', 'test_dataset', aframe_obj.schema, new_query)
+        # actual = af.__getitem__(aframe_obj)
+        actual = af['col1']
+
+        self.assertEqual('test_dataverse', actual._dataverse)
+        self.assertEqual('test_dataset', actual._dataset)
+        self.assertEqual(query, actual.query)
+
+        # self.assertEqual(expected._dataverse, actual._dataverse)
+        # self.assertEqual(expected._dataset, actual._dataset)
+        # self.assertEqual(expected._schema, actual._schema)
+        # self.assertEqual(expected._query, actual._query)
+
 
 if __name__ == '__main__':
     unittest.main()
