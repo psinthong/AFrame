@@ -12,6 +12,10 @@ setup(name='aframe',
       url='http://github.com/psinthon/AFrame',
       author='Gift Sinthong',
       author_email='psinthon@uci.edu',
+      install_requires=[
+          'pandas',
+          'numpy',
+      ],
       license='MIT',
       packages=setuptools.find_packages(),
       zip_safe=False)
