@@ -131,6 +131,14 @@ class AFrame:
                 df.drop('_uuid', axis=1, inplace=True)
             return df
 
+    def collect(self):
+        results = self.send_request(self.query)
+        json_str = json.dumps(results)
+        result = pd.DataFrame(data=json.read_json(json_str))
+        if '_uuid' in result.columns:
+            result.drop('_uuid', axis=1, inplace=True)
+        return result
+
     def collect_query(self):
         if self._dataset is None:
             raise ValueError('no dataset specified')
@@ -445,6 +453,33 @@ class AFrame:
         else:
             return OrderedAFrame(self._dataverse, self._dataset, self._columns, on, self.query, window)
 
+    @staticmethod
+    def cut(af, bins, labels=None):
+        if not isinstance(af, AFrame):
+            raise ValueError('Input data has to be an AFrame object')
+        else:
+            if isinstance(bins, int):
+                data_min = af.min()
+                data_max = af.max()
+                bin_size = (data_max-data_min)/bins
+                new_min = data_min - ((data_max-data_min)*0.1/100)
+                new_max = data_max + ((data_max-data_min)*0.1/100)
+                new_query = 'SELECT VALUE CASE\n'
+                lower_bound = new_min
+                for i in range(bins):
+                    upper_bound = round(lower_bound+bin_size,3)
+                    if i+1 == bins:
+                        case = 'WHEN (%s<t and t<=%s) THEN %d\n' % (str(lower_bound), str(new_max), i + 1)
+                    else:
+                        case = 'WHEN (%s<t and t<=%s) THEN %d\n' %(str(lower_bound),str(upper_bound), i+1)
+                    new_query += case
+                    lower_bound = upper_bound
+                new_query += 'END FROM (%s) t;' %af.query[:-1]
+                return AFrame(af._dataverse, af._dataset, None,query=new_query)
+
+
+
+
     #------------------ migrate AFrameObj methods
     def __add__(self, other):
         return self.add(other)
@@ -504,19 +539,21 @@ class AFrame:
         return type(self)(self._dataverse, self._dataset, schema, new_query)
 
     def max(self):
-        new_query = 'SELECT max(t.%s) FROM (%s) t;' % (self.schema, self.query[:-1])
-        schema = 'max(%s)' % self.schema
-        return type(self)(self._dataverse, self._dataset, schema, new_query)
+        return self.agg_function('max')
 
     def min(self):
-        new_query = 'SELECT min(t.%s) FROM (%s) t;' % (self.schema, self.query[:-1])
-        schema = 'min(%s)' % self.schema
-        return type(self)(self._dataverse, self._dataset, schema, new_query)
+        return self.agg_function('min')
 
     def avg(self):
-        new_query = 'SELECT avg(t.%s) FROM (%s) t;' % (self.schema, self.query[:-1])
-        schema = 'avg(%s)' % self.schema
-        return type(self)(self._dataverse, self._dataset, schema, new_query)
+        return self.agg_function('avg')
+
+    def count(self):
+        return self.agg_function('count')
+
+    def agg_function(self, func):
+        new_query = 'SELECT VALUE %s(t) FROM (%s) t;' % (func, self.query[:-1])
+        result = self.send_request(new_query)
+        return result[0]
 
     def __eq__(self, other):
         return self.binary_opt(other, '=')
@@ -632,61 +669,6 @@ class AFrame:
                 '\n create type _Temp.TempType if not exists as open{ _uuid: uuid};'
         result = self.send(query)
         return result
-
-    # def __setitem__(self, key, value):
-    #     if not isinstance(key, str):
-    #         raise ValueError('Must provide a string name for the appended column.')
-    #     if not isinstance(value, AFrame):
-    #         raise ValueError('A column must be of type \'AFrameObj\'')
-    #     dataset = self._dataverse + '.' + self._dataset
-    #     fields = ''
-    #     if isinstance(self.schema, list):
-    #         for i in range(len(self.schema)):
-    #             if i == 0:
-    #                 fields += 't.' + self.schema[i]
-    #             else:
-    #                 fields += ', t.' + self.schema[i]
-    #         new_query = 'SELECT %s, %s %s FROM (%s) t;' % (fields, value.schema, key, self.query[:-1])
-    #         self.schema.append(key)
-    #         self._query = new_query
-    #     else:
-    #         if self.query is None:
-    #             new_query = 'SELECT t.*, %s %s FROM %s t;' % (value.schema, key, dataset)
-    #         else:
-    #             new_query = 'SELECT t.*, %s %s FROM (%s) t;' % (value.schema, key, self.query[:-1])
-    #         schema = value.schema
-    #         self._schema = schema
-    #         self._query = new_query
-
-    # def withColumn(self, name, col):
-    #     if not isinstance(name, str):
-    #         raise ValueError('Must provide a string name for the appended column.')
-    #     # if not isinstance(col, AFrame):
-    #     #     raise ValueError('A column must be of type \'AFrameObj\'')
-    #     # cnt = af.AFrame.get_column_count(col)
-    #     # if self.get_count() != cnt:
-    #     #     # print(self.get_count(), cnt)
-    #     #     raise ValueError('The appended column must have the same size as the original AFrame.')
-    #     dataset = self._dataverse + '.' + self._dataset
-    #     fields = ''
-    #     if isinstance(self.schema, list):
-    #         for i in range(len(self.schema)):
-    #             if i == 0:
-    #                 fields += 't.'+self.schema[i]
-    #             else:
-    #                 fields += ', t.' + self.schema[i]
-    #         new_query = 'SELECT %s, %s %s FROM (%s) t;' % (fields, col.schema, name, self.query[:-1])
-    #         self.schema.append(name)
-    #         return AFrame(self._dataverse, self._dataset, self.schema, new_query)
-    #     new_query = 'SELECT t.*, %s %s FROM (%s) t;' % (col.schema, name, self.query[:-1])
-    #     schema = col.schema
-    #     return AFrame(self._dataverse, self._dataset, schema, new_query)
-
-    # def get_count(self):
-    #     query = 'SELECT VALUE count(*) FROM (%s) t;' % self.query[:-1]
-    #     result = AFrame.send_request(query)[0]
-    #     return result
-
 
         #-------------migrate AFrameObj methods
 

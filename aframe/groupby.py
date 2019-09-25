@@ -66,19 +66,15 @@ class AFrameGroupBy:
 
     def agg(self, attr, func):
         dataset = self._dataverse + '.' + self._dataset
-        if func == 'count':
-            query = 'SELECT grp_id, count(%s) AS %s FROM %s t ' % (attr, func, dataset)
+        functions = ['count', 'min', 'max', 'avg', 'sum', 'stddev_samp', 'stddev_pop', 'var_samp', 'var_pop']
+        if str(func).lower() in functions:
+            query = 'SELECT grp_id, %s(%s) AS %s FROM %s t ' % (func, attr,func,dataset)
             query += self._schema + ';'
             results = json.dumps(self.send_request(query))
             df = pd.DataFrame(data=json.read_json(results), columns=['grp_id', func])
             return df
-        if func == 'max':
-            query = 'SELECT grp_id, max(t.%s) AS %s FROM %s t ' % (attr, func, dataset)
-            query += self._schema+';'
-            results = json.dumps(self.send_request(query))
-            df = pd.DataFrame(data=json.read_json(results), columns=['grp_id', func])
-
-            return df
+        else:
+            raise ValueError('Aggregate function %s is not available' %func)
 
     def send_request(self, query: str):
         host = self._server_address+'/query/service'

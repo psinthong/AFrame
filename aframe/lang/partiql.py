@@ -1,5 +1,5 @@
 from aframe.aframe import AFrame
-from aframe.aframeObj import AFrameObj
+# from aframe.aframeObj import AFrameObj
 import subprocess
 import ast
 import pandas as pd
