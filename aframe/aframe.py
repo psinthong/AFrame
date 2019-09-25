@@ -329,7 +329,7 @@ class AFrame:
             return type(self)(self._dataverse, self._dataset, schema, query)
 
     def groupby(self, by):
-        return AFrameGroupBy(self._dataverse, self._dataset, self._server_address, by)
+        return AFrameGroupBy(self._dataverse, self._dataset, self.query, self._server_address, by)
 
     def apply(self, func, *args, **kwargs):
         if not isinstance(func, str):
@@ -455,27 +455,71 @@ class AFrame:
 
     @staticmethod
     def cut(af, bins, labels=None):
+        use_label = False
+        if isinstance(labels, list):
+            if isinstance(bins, int) and len(labels) != bins:
+                raise ValueError('insufficient labels')
+            elif isinstance(bins, list) and len(labels) != len(bins) - 1:
+                raise ValueError('insufficient labels')
+            else:
+                use_label = True
         if not isinstance(af, AFrame):
             raise ValueError('Input data has to be an AFrame object')
         else:
+            new_query = 'SELECT VALUE CASE\n'
+            schema = 'CASE\n'
             if isinstance(bins, int):
                 data_min = af.min()
                 data_max = af.max()
                 bin_size = (data_max-data_min)/bins
                 new_min = data_min - ((data_max-data_min)*0.1/100)
                 new_max = data_max + ((data_max-data_min)*0.1/100)
-                new_query = 'SELECT VALUE CASE\n'
+
                 lower_bound = new_min
                 for i in range(bins):
                     upper_bound = round(lower_bound+bin_size,3)
+
                     if i+1 == bins:
-                        case = 'WHEN (%s<t and t<=%s) THEN %d\n' % (str(lower_bound), str(new_max), i + 1)
+                        if use_label:
+                            label = str(labels[i])
+                        else:
+                            label = '(%s,%s]' % (str(lower_bound), str(float(data_max)))
+                        case = 'WHEN (%s<t and t<=%s) THEN \"%s\"\n' % (str(lower_bound), str(float(data_max)), label)
+                        case_schema = 'WHEN (%s<t.%s and t.%s<=%s) THEN \"%s\"\n' % (
+                            str(lower_bound), af.schema, af.schema, str(float(data_max)), label)
                     else:
-                        case = 'WHEN (%s<t and t<=%s) THEN %d\n' %(str(lower_bound),str(upper_bound), i+1)
+                        if use_label:
+                            label = str(labels[i])
+                        else:
+                            label = '(%s,%s]' % (str(lower_bound),str(upper_bound))
+                        case = 'WHEN (%s<t and t<=%s) THEN \"%s\"\n' %(str(lower_bound),str(upper_bound), label)
+                        case_schema = 'WHEN (%s<t.%s and t.%s<=%s) THEN \"%s\"\n' % (
+                            str(lower_bound), af.schema, af.schema, str(upper_bound), label)
                     new_query += case
+                    schema += case_schema
                     lower_bound = upper_bound
                 new_query += 'END FROM (%s) t;' %af.query[:-1]
-                return AFrame(af._dataverse, af._dataset, None,query=new_query)
+                schema += 'END'
+                return AFrame(af._dataverse, af._dataset, schema,query=new_query)
+            if isinstance(bins, list) & len(bins) > 0:
+                lower_bound = bins[0] # first element
+                for i in range(len(bins)-1):
+                    upper_bound = bins[i+1]
+                    if use_label:
+                        label = str(labels[i])
+                    else:
+                        label = '(%s,%s]' % (str(lower_bound),str(upper_bound))
+                    case = 'WHEN (%s<t and t<=%s) THEN \"%s\"\n' %(str(lower_bound),str(upper_bound), label)
+                    case_schema = 'WHEN (%s<t.%s and t.%s<=%s) THEN \"%s\"\n' % (
+                        str(lower_bound), af.schema, af.schema, str(upper_bound), label)
+                    new_query += case
+                    schema += case_schema
+                    lower_bound = upper_bound
+                new_query += 'END FROM (%s) t;' % af.query[:-1]
+                schema += 'END'
+                return AFrame(af._dataverse, af._dataset, schema, query=new_query)
+
+
 
 
 
