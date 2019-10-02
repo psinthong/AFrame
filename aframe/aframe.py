@@ -69,7 +69,10 @@ class AFrame:
         new_query = 'SELECT t.*, %s %s FROM (%s) t;' % (value.schema, key, self.query[:-1])
         schema = value.schema
         if self._schema is not None:
-            self._schema.append(schema)
+            if isinstance(self._schema, list):
+                self._schema.append(schema)
+            elif isinstance(self._schema, str):
+                self._schema = self._schema+',%s' %schema
         else:
             self._schema = [schema]
         self.query = new_query
@@ -313,7 +316,7 @@ class AFrame:
                 raise NotImplementedError('Join type specified is not yet available')
 
             l_dataset = '(%s)' % self.query[:-1]
-            r_dataset = other._dataverse + '.' + other._dataset
+            r_dataset = '(%s)' % other.query[:-1]
             if other.query is not None:
                 r_dataset = '(%s)' % other.query[:-1]
 
@@ -321,7 +324,7 @@ class AFrame:
                 query = 'SELECT VALUE object_merge(%s,%s) '% (lsuffix, rsuffix) + 'FROM %s %s ' %(l_dataset, lsuffix) +\
                         join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             else:
-                query = 'SELECT %s,%s '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
+                query = 'SELECT %s.*,%s.* '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
                         join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
             schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
                      ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
@@ -334,7 +337,6 @@ class AFrame:
     def apply(self, func, *args, **kwargs):
         if not isinstance(func, str):
             raise TypeError('Function name must be string.')
-        dataset = self._dataverse + '.' + self._dataset
         args_str = ''
         if args:
             for arg in args:
@@ -619,10 +621,13 @@ class AFrame:
 
     def binary_opt(self, other, opt):
         if type(other) == str:
-            schema = 't.%s %s \'%s\'' %(self.schema, opt, other)
+            selection = 't.%s %s \'%s\'' %(self.schema, opt, other)
+            schema = '%s %s \'%s\'' % (self.schema, opt, other)
         else:
-            schema = 't.%s %s %s' % (self.schema, opt, other)
-        query = 'SELECT VALUE %s FROM (%s) t;' %(schema, self.query[:-1])
+            selection = 't %s %s' % (opt, other)
+            schema = '%s %s %s' % (self.schema, opt, other)
+        query = 'SELECT VALUE %s FROM (%s) t;' %(selection, self.query[:-1])
+
         return type(self)(self._dataverse, self._dataset, schema, query)
 
     def __and__(self, other):
@@ -663,16 +668,16 @@ class AFrame:
         schema = '%s(t.%s%s)' % (func, self.schema, args_str)
         new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query[:-1])
 
-        predicate = None
-        if self._predicate is not None:
-            predicate = self._predicate
-            new_query = 'SELECT VALUE %s(t.%s%s) FROM (%s) t WHERE %s;' % (func, self.schema, args_str, self.query[:-1], self._predicate)
+        # predicate = None
+        # if self._predicate is not None:
+        #     predicate = self._predicate
+        #     new_query = 'SELECT VALUE %s(t.%s%s) FROM (%s) t WHERE %s;' % (func, self.schema, args_str, self.query[:-1], self._predicate)
         # elif self._query is not None:
         #     new_query = 'SELECT %s FROM (%s) t;' % (fields, self.query[:-1])
         # else:
         #     new_query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
 
-        return AFrame(self._dataverse, self._dataset, schema, new_query, predicate)
+        return AFrame(self._dataverse, self._dataset, schema, new_query, None)
 
     def persist(self, name=None, dataverse=None):
         if self.schema is None:

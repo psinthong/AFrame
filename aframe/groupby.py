@@ -3,6 +3,7 @@ import pandas.io.json as json
 import urllib.parse
 import urllib.request
 import urllib.error
+import aframe as af
 
 
 class AFrameGroupBy:
@@ -33,12 +34,21 @@ class AFrameGroupBy:
         return dataverse, dataset
 
     def get_initial_query(self, old_query, by):
-        query = 'SELECT * FROM (%s) t GROUP BY t.%s' \
-                'GROUP AS grps(t AS grp);' % (old_query[:-1], by)
+        by_lst = ''
+        if isinstance(by, list):
+            for i in range(len(by)):
+                if i == 0:
+                    by_lst += 't.%s' % str(by[i])
+                else:
+                    by_lst += ',t.%s' % str(by[i])
+        elif isinstance(by, str):
+            by_lst += 't.%s' % by
+        query = 'SELECT * FROM (%s) t GROUP BY %s ' \
+                'GROUP AS grps(t AS grp);' % (old_query[:-1], by_lst)
         if self._schema:
-            query = 'SELECT %s FROM (%s) t GROUP BY t.%s AS %s ' \
-                    'GROUP AS grps(t AS grp);' % (by, self._schema, old_query[:-1], by)
-        self._schema = 'GROUP BY t.%s GROUP AS grps(t AS grp)' % by
+            query = 'SELECT %s FROM (%s) t GROUP BY %s AS %s ' \
+                    'GROUP AS grps(t AS grp);' % (by_lst, self._schema, old_query[:-1], by_lst)
+        self._schema = 'GROUP BY %s GROUP AS grps(t AS grp)' % by_lst
         return query
 
     def get_group(self, key):
@@ -65,13 +75,23 @@ class AFrameGroupBy:
     #     return new_g
 
     def agg(self, attr, func):
+        by_lst = ''
+        if isinstance(self._by, list):
+            for i in range(len(self._by)):
+                if i == 0:
+                    by_lst += 't.%s' % str(self._by[i])
+                else:
+                    by_lst += ',t.%s' % str(self._by[i])
+        elif isinstance(self._by, str):
+            by_lst += 't.%s' % self._by
+
         functions = ['count', 'min', 'max', 'avg', 'sum', 'stddev_samp', 'stddev_pop', 'var_samp', 'var_pop']
         if str(func).lower() in functions:
-            query = 'SELECT %s, %s(%s) AS %s FROM (%s) t ' % (self._by, func, attr,func,self._base_query[:-1])
+            query = 'SELECT %s, %s(%s) AS %s FROM (%s) t ' % (by_lst, func, attr,func,self._base_query[:-1])
             query += self._schema + ';'
-            results = json.dumps(self.send_request(query))
-            df = pd.DataFrame(data=json.read_json(results), columns=[self._by, func])
-            return df
+            # results = json.dumps(self.send_request(query))
+            # df = pd.DataFrame(data=json.read_json(results), columns=[by_lst, func])
+            return af.AFrame(dataverse=self._dataverse, dataset=self._dataset,schema=self._schema,query=query)
         else:
             raise ValueError('Aggregate function %s is not available' %func)
 
