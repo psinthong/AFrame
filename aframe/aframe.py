@@ -47,7 +47,7 @@ class AFrame:
 
         if isinstance(key, str):
             query = self.create_query('SELECT VALUE t.%s FROM (%s) t;' % (key, self.query[:-1]), projection=key)
-            return type(self)(self._dataverse, self._dataset, key, query)
+            return type(self)(self._dataverse, self._dataset, 't.%s' % key, query)
 
         if isinstance(key, (np.ndarray, list)):
             fields = ''
@@ -56,7 +56,7 @@ class AFrame:
                     fields += ', '
                 fields += 't.%s' % key[i]
             query = self.create_query('SELECT %s FROM (%s) t;' % (fields, self.query[:-1]), projection=key)
-            return type(self)(self._dataverse, self._dataset, key, query)
+            return type(self)(self._dataverse, self._dataset, fields, query)
 
     def __setitem__(self, key, value):
         dataset = self._dataverse + '.' + self._dataset
@@ -65,7 +65,6 @@ class AFrame:
         if isinstance(value, OrderedAFrame):
             new_query = 'SELECT t.*, %s %s FROM %s t;' % (value._columns, key, dataset)
             self.query = new_query
-        fields = ''
         new_query = 'SELECT t.*, %s %s FROM (%s) t;' % (value.schema, key, self.query[:-1])
         schema = value.schema
         if self._schema is not None:
@@ -298,9 +297,10 @@ class AFrame:
         fields = result['Derived']['Record']['Fields']
         for field in fields:
             name = field['FieldName']
-            type = field['FieldType']
+            # type = field['FieldType']
             nullable = field['IsNullable']
-            column = dict([(name, type)])
+            # column = dict([(name, type)])
+            column = name
             if self._columns is None:
                 self._columns = [column]
             else:
@@ -454,6 +454,91 @@ class AFrame:
             raise ValueError('Must provide at least \'on\' or \'window\' value')
         else:
             return OrderedAFrame(self._dataverse, self._dataset, self._columns, on, self.query, window)
+
+    def get_bin_size(self, attr, bins):
+        if isinstance(attr, AFrame):
+            query = "SELECT VALUE " \
+                    "duration_from_ms(" \
+                    "to_bigint(" \
+                    "ms_from_day_time_duration(" \
+                    "duration_from_interval(" \
+                    "interval(min(t), max(t))))/%d)) " \
+                    "FROM (%s) t;" % (bins, attr.query[:-1])
+            result = self.send_request(query)[0]
+            return result
+
+    @staticmethod
+    def is_datetime(text):
+        if isinstance(text, str):
+            if 'T' in text:
+                return True
+            return False
+
+    def get_min_date(self,query):
+        new_query = 'SELECT VALUE MIN(t) FROM (%s) t;' % query
+        date_str = self.send_request(new_query)[0]
+        if AFrame.is_datetime(date_str):
+            return 'datetime(\"%s\")' %date_str
+        else:
+            return 'date(\"%s\")' % date_str
+
+    def format_datetime_bin(self, min_date, duration, bin_attribute='t'):
+        start = "print_datetime(\n" \
+                "\tget_interval_start_datetime(\n" \
+                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DDThh:mm:ss\")" %(bin_attribute, min_date,duration)
+        end = "print_datetime(\n" \
+                "\tget_interval_end_datetime(\n" \
+                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DDThh:mm:ss\")" %(bin_attribute, min_date,duration)
+        bin_query = "CONCAT(\"(\", \n%s, \", \", \n%s, \"]\")" % (start, end)
+        return bin_query
+
+    def format_date_bin(self, min_date, duration, bin_attribute='t'):
+        start = "print_date(\n" \
+                "\tget_interval_start_date(\n" \
+                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DD\")" %(bin_attribute, min_date,duration)
+        end = "print_date(\n" \
+                "\tget_interval_end_date(\n" \
+                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DD\")" %(bin_attribute, min_date,duration)
+        bin_query = "CONCAT(\"(\", \n%s, \", \", \n%s, \"]\")" % (start, end)
+        return bin_query
+
+    def drop(self, attrs):
+        remove_list = ''
+        if isinstance(attrs, str):
+            remove_list.append(attrs)
+        elif isinstance(attrs, list):
+            attrs = ['\"%s\"'% i for i in attrs]
+            sep = ','
+            remove_list = sep.join(attrs)
+        schema = 'OBJECT_REMOVE_FIELDS(t, [%s])' % remove_list
+        new_query = 'SELECT VALUE OBJECT_REMOVE_FIELDS(t, [%s]) FROM (%s) t;' % (remove_list, self.query[:-1])
+        return AFrame(self._dataverse, self._dataset, schema, new_query)
+
+    @staticmethod
+    def cut_date(af,bins):
+        if not isinstance(af, AFrame):
+            raise ValueError('Input data has to be an AFrame object')
+        else:
+            if not isinstance(bins, int):
+                raise ValueError('Input bins has to be an integer')
+            else:
+                min_date = af.get_min_date(af.query[:-1])
+                bin_size = af.get_bin_size(af, bins)
+                # new_schema = 'interval_bin(t.%s, %s, get_day_time_duration(duration(\"%s\")))' % (af.schema, min_date, bin_size)
+
+                if 'datetime' in min_date:
+                    new_schema = af.format_datetime_bin(min_date, bin_size, "t.%s" % af.schema)
+                    bin_query = af.format_datetime_bin(min_date, bin_size)
+                else:
+                    new_schema = af.format_date_bin(min_date, bin_size, "t.%s" % af.schema)
+                    bin_query = af.format_date_bin(min_date, bin_size)
+
+                new_query = 'SELECT VALUE \n' \
+                            '%s \n' \
+                            'FROM (%s) t;' % (bin_query, af.query[:-1])
+                return AFrame(af._dataverse, af._dataset, new_schema, new_query)
+
+
 
     @staticmethod
     def cut(af, bins, labels=None):
@@ -744,7 +829,7 @@ class AFrame:
             return result['status']
 
     @staticmethod
-    def drop(af=None, dataverse=None, dataset=None):
+    def drop_dataset(af=None, dataverse=None, dataset=None):
         if isinstance(af, AFrame):
             query = 'DROP DATASET %s.%s;' % (af._dataverse, af._dataset)
             result = af.send(query)
