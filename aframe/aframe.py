@@ -502,7 +502,9 @@ class AFrame:
         bin_query = "CONCAT(\"(\", \n%s, \", \", \n%s, \"]\")" % (start, end)
         return bin_query
 
-    def drop(self, attrs):
+    def drop(self, attrs, axis=1):
+        if axis != 1:
+            raise ValueError('drop() currently only supports dropping columns')
         remove_list = ''
         if isinstance(attrs, str):
             remove_list.append(attrs)
@@ -510,6 +512,8 @@ class AFrame:
             attrs = ['\"%s\"'% i for i in attrs]
             sep = ','
             remove_list = sep.join(attrs)
+        else:
+            raise ValueError('drop() takes a list of column names')
         schema = 'OBJECT_REMOVE_FIELDS(t, [%s])' % remove_list
         new_query = 'SELECT VALUE OBJECT_REMOVE_FIELDS(t, [%s]) FROM (%s) t;' % (remove_list, self.query[:-1])
         return AFrame(self._dataverse, self._dataset, schema, new_query)
