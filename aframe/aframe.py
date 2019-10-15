@@ -518,6 +518,16 @@ class AFrame:
         new_query = 'SELECT VALUE OBJECT_REMOVE_FIELDS(t, [%s]) FROM (%s) t;' % (remove_list, self.query[:-1])
         return AFrame(self._dataverse, self._dataset, schema, new_query)
 
+    def unique(self, sample=0):
+        if sample == 0:
+            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t;' % self.query[:-1]
+        elif sample > 0:
+            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t LIMIT %d;' % (self.query[:-1], sample)
+        else:
+            raise ValueError('Number of returning records must be > 0.')
+        result = self.send_request(new_query)
+        return result
+
     @staticmethod
     def cut_date(af,bins):
         if not isinstance(af, AFrame):
