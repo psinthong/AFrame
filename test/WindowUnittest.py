@@ -30,7 +30,7 @@ class TestWindowFunction(unittest.TestCase):
         self.assertEqual(actual._part, 'test_cols')
         self.assertEqual(actual._ord, 'test_ord')
         self.assertEqual(actual._rows, 'test_rows')
-
+        
     def testPartitionBy_ColsIsList(self):
         cols = ['attr1', 'attr2', 'attr3']
         window = Window('test_part', 'test_ord', 'test_rows')
@@ -49,7 +49,6 @@ class TestWindowFunction(unittest.TestCase):
     def testOrderBy_ColsIsStrOrderIsASC(self):
         window = Window('test_part', 'test_ord', 'test_rows')
         cols = 'test_cols'
-        ord = '%s %s' % (cols,'ASC')
         #print(ord)
 
         actual = window.orderBy(cols, 'ASC')
@@ -60,7 +59,6 @@ class TestWindowFunction(unittest.TestCase):
     def testOrderBy_ColsIsStrOrderIsDESC(self):
         window = Window('test_part', 'test_ord', 'test_rows')
         cols = 'test_cols'
-        ord = '%s %s' % (cols,'DESC')
         #print(ord)
 
         actual = window.orderBy(cols, 'DESC')
@@ -122,7 +120,7 @@ class TestWindowFunction(unittest.TestCase):
         actual = window.rowsBetween(3, 0)
         self.assertEqual(actual._part, 'test_part')
         self.assertEqual(actual._ord, 'test_ord')
-        self.assertEqual(actual._rows, 'ROWS BETWEEN -3 PRECEDING AND CURRENT ROW')
+        self.assertEqual(actual._rows, 'ROWS BETWEEN 3 PRECEDING AND CURRENT ROW')
 
     def testRowBetween_StartIsNotZeroEndIsNotZero(self):
         window = Window('test_part', 'test_ord', 'test_rows')
@@ -130,7 +128,7 @@ class TestWindowFunction(unittest.TestCase):
         actual = window.rowsBetween(3, 3)
         self.assertEqual(actual._part, 'test_part')
         self.assertEqual(actual._ord, 'test_ord')
-        self.assertEqual(actual._rows, 'ROWS BETWEEN -3 PRECEDING AND 3 FOLLOWING')
+        self.assertEqual(actual._rows, 'ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING')
             
 if __name__ == '__main__':
     unittest.main()
