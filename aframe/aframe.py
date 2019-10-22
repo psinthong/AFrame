@@ -297,10 +297,10 @@ class AFrame:
         fields = result['Derived']['Record']['Fields']
         for field in fields:
             name = field['FieldName']
-            # type = field['FieldType']
-            nullable = field['IsNullable']
-            # column = dict([(name, type)])
-            column = name
+            type = field['FieldType']
+            # nullable = field['IsNullable']
+            column = dict([(name, type)])
+            # column = name
             if self._columns is None:
                 self._columns = [column]
             else:
