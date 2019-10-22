@@ -764,7 +764,7 @@ class AFrame:
                 else:
                     args_str += ', %s = %s' % (key, str(value))
         # schema = func + '(' + self.schema + args_str + ')'
-        schema = '%s(t.%s%s)' % (func, self.schema, args_str)
+        schema = '%s(%s%s)' % (func, self.schema, args_str)
         new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query[:-1])
 
         # predicate = None
