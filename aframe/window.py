@@ -18,7 +18,7 @@ class Window(object):
         part_list = ''
         if isinstance(cols, str):
             part_list = cols
-        elif isinstance(cols[0], list):
+        elif isinstance(cols, list):
             for i in range(len(cols)):
                 if i > 0:
                     part_list += ', '
@@ -30,7 +30,7 @@ class Window(object):
         ord_list = ''
         if isinstance(cols, str):
             ord_list = cols
-        elif isinstance(cols[0], list):
+        elif isinstance(cols, list):
             for i in range(len(cols)):
                 if i > 0:
                     ord_list += ', '
