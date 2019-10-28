@@ -483,31 +483,26 @@ class AFrame:
             return 'date(\"%s\")' % date_str
 
     def format_datetime_bin(self, min_date, duration, bin_attribute='t'):
-        start = "print_datetime(\n" \
-                "\tget_interval_start_datetime(\n" \
-                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DDThh:mm:ss\")" %(bin_attribute, min_date,duration)
-        end = "print_datetime(\n" \
-                "\tget_interval_end_datetime(\n" \
-                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DDThh:mm:ss\")" %(bin_attribute, min_date,duration)
-        bin_query = "CONCAT(\"(\", \n%s, \", \", \n%s, \"]\")" % (start, end)
+        start = "\n\tget_interval_start_datetime(" \
+                "interval_bin(%s , %s, get_day_time_duration(duration(\"%s\"))))" %(bin_attribute, min_date,duration)
+        end = "\n\tget_interval_end_datetime(" \
+                "interval_bin(%s , %s, get_day_time_duration(duration(\"%s\"))))" % (bin_attribute, min_date,duration)
+        bin_query = "OBJECT_MERGE({\"Start\":%s}, \n\t{\"End\":%s})" % (start, end)
         return bin_query
 
     def format_date_bin(self, min_date, duration, bin_attribute='t'):
-        start = "print_date(\n" \
-                "\tget_interval_start_date(\n" \
-                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DD\")" %(bin_attribute, min_date,duration)
-        end = "print_date(\n" \
-                "\tget_interval_end_date(\n" \
-                "\tinterval_bin(%s , %s, get_day_time_duration(duration(\"%s\")))),\"YYYY-MM-DD\")" %(bin_attribute, min_date,duration)
-        bin_query = "CONCAT(\"(\", \n%s, \", \", \n%s, \"]\")" % (start, end)
+        start = "\nget_interval_start_date(" \
+                "interval_bin(%s , %s, get_day_time_duration(duration(\"%s\"))))" % (bin_attribute, min_date, duration)
+        end = "\nget_interval_end_date(" \
+              "interval_bin(%s , %s, get_day_time_duration(duration(\"%s\"))))" % (bin_attribute, min_date, duration)
+        bin_query = "OBJECT_MERGE({\"Start\":%s}, {\"End\":%s})" % (start, end)
         return bin_query
 
     def drop(self, attrs, axis=1):
         if axis != 1:
             raise ValueError('drop() currently only supports dropping columns')
-        remove_list = ''
         if isinstance(attrs, str):
-            remove_list.append(attrs)
+            remove_list = "\"%s\"" % attrs
         elif isinstance(attrs, list):
             attrs = ['\"%s\"'% i for i in attrs]
             sep = ','
@@ -538,13 +533,12 @@ class AFrame:
             else:
                 min_date = af.get_min_date(af.query[:-1])
                 bin_size = af.get_bin_size(af, bins)
-                # new_schema = 'interval_bin(t.%s, %s, get_day_time_duration(duration(\"%s\")))' % (af.schema, min_date, bin_size)
 
                 if 'datetime' in min_date:
-                    new_schema = af.format_datetime_bin(min_date, bin_size, "t.%s" % af.schema)
+                    new_schema = af.format_datetime_bin(min_date, bin_size, af.schema)
                     bin_query = af.format_datetime_bin(min_date, bin_size)
                 else:
-                    new_schema = af.format_date_bin(min_date, bin_size, "t.%s" % af.schema)
+                    new_schema = af.format_date_bin(min_date, bin_size, af.schema)
                     bin_query = af.format_date_bin(min_date, bin_size)
 
                 new_query = 'SELECT VALUE \n' \
