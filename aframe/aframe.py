@@ -714,7 +714,7 @@ class AFrame:
 
     def binary_opt(self, other, opt):
         if type(other) == str:
-            selection = 't.%s %s \'%s\'' %(self.schema, opt, other)
+            selection = 't %s \'%s\'' % (opt, other)
             schema = '%s %s \'%s\'' % (self.schema, opt, other)
         else:
             selection = 't %s %s' % (opt, other)
