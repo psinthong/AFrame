@@ -843,8 +843,205 @@ class TestOrderedAFrame(unittest.TestCase):
                          "SELECT VALUE CUME_DIST(t.test_cols) OVER(ORDER BY t.test_on ) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5) t;")
     '''
 
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunction_QueryIsNone(self, mock_method, mock_init):
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", None, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
 
+        actual = orderedAF.validate_window_function("test_func")
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func() OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func() OVER(ORDER BY t.test_on) FROM test_dataverse.test_dataset t;")
+        mock_method.assert_called_once
 
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunction_QueryIsNotNone(self, mock_method, mock_init):
+        test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", test_query, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function("test_func")
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func() OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func() OVER(ORDER BY t.test_on) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5) t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    def testValidateWindowFunctionArgument_ValueError(self, mock_init):
+        test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", test_query, None)
+        mock_init.assert_called_once
+        with self.assertRaises(ValueError):
+            orderedAF.validate_window_function_argument("test_func", None, True)
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionArgument_QueryIsNoneNotIgnoreNull(self, mock_method, mock_init):
+        #test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", None, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_argument("test_func", "test_expr", False)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr) OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr) OVER(ORDER BY t.test_on) FROM test_dataverse.test_dataset t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionArgument_QueryIsNotNoneNotIgnoreNull(self, mock_method, mock_init):
+        test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", test_query, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_argument("test_func", "test_expr", False)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr) OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr) OVER(ORDER BY t.test_on) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5) t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionArgument_QueryIsNoneIgnoreNull(self, mock_method, mock_init):
+        #test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", None, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_argument("test_func", "test_expr", True)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr) IGNORE NULLS OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr) IGNORE NULLS OVER(ORDER BY t.test_on) FROM test_dataverse.test_dataset t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionArgument_QueryIsNotNoneIgnoreNull(self, mock_method, mock_init):
+        test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", test_query, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_argument("test_func", "test_expr", True)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr) IGNORE NULLS OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr) IGNORE NULLS OVER(ORDER BY t.test_on) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5) t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    def testValidateWindowFunctionTwoArguments_ValueError_ExprIsNotStr(self, mock_init):
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", None, None)
+        mock_init.assert_called_once
+        with self.assertRaises(ValueError):
+            orderedAF.validate_window_function_two_arguments("test_func", 0, None, False)
+
+    @patch.object(AFrame, "__init__")
+    def testValidateWindowFunctionTwoArguments_ValueError_OffsetIsNotInt(self, mock_init):
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", None, None)
+        mock_init.assert_called_once
+        with self.assertRaises(ValueError):
+            orderedAF.validate_window_function_two_arguments("test_func", None, "test_expr", False)
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionTwoArguments_QueryIsNoneNotIgnoreNull(self, mock_method, mock_init):
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", None, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_two_arguments("test_func", 0, "test_expr", False)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr, 0) OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr, 0) OVER(ORDER BY t.test_on) FROM test_dataverse.test_dataset t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionTwoArguments_QueryIsNotNoneNotIgnoreNull(self, mock_method, mock_init):
+        test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", test_query, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_two_arguments("test_func", 0, "test_expr", False)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr, 0) OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr, 0) OVER(ORDER BY t.test_on) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5) t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionTwoArguments_QueryIsNoneIgnoreNull(self, mock_method, mock_init):
+        #test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", None, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_two_arguments("test_func", 0, "test_expr", True)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr,0) IGNORE NULLS OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr,0) IGNORE NULLS OVER(ORDER BY t.test_on) FROM test_dataverse.test_dataset t;")
+        mock_method.assert_called_once
+
+    @patch.object(AFrame, "__init__")
+    @patch.object(OrderedAFrame, "get_window")
+    def testValidateWindowFunctionTwoArguments_QueryIsNoneIgnoreNull(self, mock_method, mock_init):
+        test_query = 'SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5;'
+        orderedAF = OrderedAFrame("test_dataverse", "test_dataset", "test_columns", "test_on", test_query, None)
+        mock_init.assert_called_once
+        mock_over = 'OVER(ORDER BY t.test_on)'
+        orderedAF.get_window = MagicMock(return_value=mock_over)
+
+        actual = orderedAF.validate_window_function_two_arguments("test_func", 0, "test_expr", True)
+        self.assertEqual(actual._dataverse, "test_dataverse")
+        self.assertEqual(actual._dataset, "test_dataset")
+        self.assertEqual(actual._columns, "test_func(test_expr,0) IGNORE NULLS OVER(ORDER BY t.test_on)")
+        self.assertEqual(actual.on, "test_on")
+        self.assertEqual(actual.query,
+                         "SELECT VALUE test_func(test_expr,0) IGNORE NULLS OVER(ORDER BY t.test_on) FROM (SELECT VALUE t FROM test_dataverse.test_dataset t LIMIT 5) t;")
+        mock_method.assert_called_once
 
 if __name__ == '__main__':
     unittest.main()
