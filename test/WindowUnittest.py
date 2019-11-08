@@ -117,7 +117,7 @@ class TestWindowFunction(unittest.TestCase):
     def testRowBetween_StartIsNotZeroEndIsZero(self):
         window = Window('test_part', 'test_ord', 'test_rows')
 
-        actual = window.rowsBetween(3, 0)
+        actual = window.rowsBetween(-3, 0)
         self.assertEqual(actual._part, 'test_part')
         self.assertEqual(actual._ord, 'test_ord')
         self.assertEqual(actual._rows, 'ROWS BETWEEN 3 PRECEDING AND CURRENT ROW')
@@ -125,7 +125,7 @@ class TestWindowFunction(unittest.TestCase):
     def testRowBetween_StartIsNotZeroEndIsNotZero(self):
         window = Window('test_part', 'test_ord', 'test_rows')
 
-        actual = window.rowsBetween(3, 3)
+        actual = window.rowsBetween(-3, 3)
         self.assertEqual(actual._part, 'test_part')
         self.assertEqual(actual._ord, 'test_ord')
         self.assertEqual(actual._rows, 'ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING')
