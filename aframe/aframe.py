@@ -530,23 +530,55 @@ class AFrame:
         return result
 
     @staticmethod
-    def get_dummies(af):
+    def get_dummies(af,columns=None):
         if isinstance(af, AFrame):
-            cols = af.unique()
-            conditions = ''
-            schemas = ''
-            for col in cols:
-                col_name = str(col).replace(" ","_").replace("/","_").replace(",","_").replace("-","_")
-                condition = 'to_number(t = \'%s\') %s,' % (col, col_name)
-                schema = 'to_number(%s = \'%s\') %s,' % (af.schema, col, col_name)
-                conditions += condition
-                schemas += schema
-            conditions = conditions[:-1]
-            schemas = schemas[:-1]
-            query = 'SELECT %s FROM (%s) t;' % (conditions, af.query[:-1])
-            return AFrame(af._dataverse,af._dataset,schemas, query,is_view=af._is_view)
+            if columns is None:
+                cols = af.unique()
+                conditions, schemas = AFrame.get_conditions(af, cols)
+                query = 'SELECT %s FROM (%s) t;' % (conditions, af.query[:-1])
+                return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view)
+            else:
+                if isinstance(columns,list):
+                    conditions = ""
+                    schemas = ""
+                    for col in columns:
+                        cols = af[col].unique()
+                        cons_i, schemas_i = AFrame.get_conditions(af, cols, str(col))
+                        conditions += cons_i+','
+                        schemas += schemas_i+','
+                    conditions = conditions[:-1]
+                    schemas = schemas[:-1]
+                    query = 'SELECT t.*, %s FROM (%s) t;' % (conditions, af.query[:-1])
+                    return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view)
+
         else:
             raise ValueError("must be an AFrame object")
+
+    @staticmethod
+    def get_conditions(af, cols, prefix=None):
+        conditions = ''
+        schemas = ''
+        for col in cols:
+            col_name = str(col).replace(" ", "_").replace("/", "_").replace(",", "_").replace("-", "_")
+            if isinstance(col, str):
+                if prefix is None:
+                    condition = "to_number(t = \'%s\') %s," % (col, col_name)
+                    schema = "to_number(%s = \'%s\') %s," % (af.schema, col, col_name)
+                else:
+                    condition = "to_number(t.%s = \'%s\') %s," % (prefix, col, prefix+'_'+col_name)
+                    schema = "to_number(%s = \'%s\') %s," % (prefix, col, prefix+'_'+col_name)
+            elif isinstance(col, (float, int)):
+                if prefix is None:
+                    condition = "to_number(t = {}) `{}`,".format(col, col_name)
+                    schema = "to_number({} = {}) `{}`,".format(af.schema, col, col_name)
+                else:
+                    condition = "to_number(t.{} = {}) `{}`,".format(prefix, col, prefix+'_'+col_name)
+                    schema = "to_number({} = {}) `{}`,".format(prefix, col, prefix+'_'+col_name)
+            conditions += condition
+            schemas += schema
+        conditions = conditions[:-1]
+        schemas = schemas[:-1]
+        return conditions, schemas
 
     @staticmethod
     def concat(objs, axis=0):
