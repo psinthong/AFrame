@@ -7,20 +7,23 @@ import pandas.io.json as json
 from aframe.groupby import AFrameGroupBy
 from pandas.io.json import json_normalize
 from aframe.window import Window
+import configparser
+import os
 
 
 class AFrame:
 
-    def __init__(self, dataverse, dataset, schema=None, query=None, predicate=None, server_address='http://localhost:19002', is_view=False):
+    def __init__(self, dataverse, dataset, schema=None, query=None, predicate=None, config_filepath=os.getcwd()+'/conf/sql_pp.ini', is_view=False):
         # load in dataset definition
         self._dataverse = dataverse
         self._dataset = dataset
-        self._server_address = server_address
+        self._server_address = AFrame.get_server_address(config_filepath)
         self._columns = None
         self._datatype = None
         self._datatype_name = None
         self._info = dict()
         self._is_view = is_view
+        self._config = config_filepath
         #initialize
         if not is_view:
             self.get_dataset(dataverse=dataverse,dataset=dataset)
@@ -39,9 +42,22 @@ class AFrame:
     def get_initial_query(self):
         dataset = self._dataverse + '.' + self._dataset
         if self._is_view:
-            return '%s();' %dataset
+            return '{}();'.format(dataset)
         else:
-            return 'SELECT VALUE t FROM %s t;' % dataset
+            init_query = AFrame.get_config_query(self._config,1)
+            return init_query.format(dataset)
+
+    @staticmethod
+    def get_config_query(file_path,q_number):
+        config = configparser.ConfigParser()
+        config.read(file_path)
+        return config['QUERIES']['q{}'.format(q_number)]
+
+    @staticmethod
+    def get_server_address(file_path):
+        config = configparser.ConfigParser()
+        config.read(file_path)
+        return config['SERVER']['address']
 
     def __repr__(self):
         return self.__str__()
@@ -52,7 +68,7 @@ class AFrame:
             return type(self)(self._dataverse, self._dataset, key.schema, new_query,is_view=self._is_view)
 
         if isinstance(key, str):
-            query = self.create_query('SELECT VALUE t.%s FROM (%s) t;' % (key, self.query[:-1]), projection=key)
+            query = 'SELECT VALUE t.%s FROM (%s) t;' % (key, self.query[:-1])
             return type(self)(self._dataverse, self._dataset, 't.%s' % key, query,is_view=self._is_view)
 
         if isinstance(key, (np.ndarray, list)):
