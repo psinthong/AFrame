@@ -4,6 +4,7 @@ __pycache__/
 .ipynb_checkpoints/
 test.py
 testSpark.py
+test_config.py
 *_perf.py
 *_perf_2.py
 prep.py
