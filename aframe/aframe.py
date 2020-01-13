@@ -235,12 +235,12 @@ class AFrame:
             fields = self.schema
             fields_str = ''
             for field in fields:
-                fields_str += 't.%s IS KNOWN AND ' % field
+                fields_str += '%s IS KNOWN AND ' % field
             fields_str = fields_str[:-4]
             query = query + fields_str + ';'
             schema = fields_str
         if isinstance(self.schema, str):
-            field_str = 't.%s IS KNOWN' % self.schema
+            field_str = '%s IS KNOWN' % self.schema
             query = query + field_str + ';'
             schema = field_str
         return type(self)(dataverse=self._dataverse, dataset=self._dataset, schema=schema, query=query, is_view=self._is_view)
@@ -251,12 +251,12 @@ class AFrame:
             fields = self.schema
             fields_str = ''
             for field in fields:
-                fields_str += 't.%s IS UNKNOWN AND ' % field
+                fields_str += '%s IS UNKNOWN AND ' % field
             fields_str = fields_str[:-4]
             query = query + fields_str + ';'
             schema = fields_str
         if isinstance(self.schema, str):
-            field_str = 't.%s IS UNKNOWN' % self.schema
+            field_str = '%s IS UNKNOWN' % self.schema
             query = query + field_str + ';'
             schema = field_str
         return type(self)(dataverse=self._dataverse, dataset=self._dataset, schema=schema, query=query, is_view=self._is_view)
