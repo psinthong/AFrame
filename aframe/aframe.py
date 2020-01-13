@@ -13,7 +13,7 @@ import os
 
 class AFrame:
 
-    def __init__(self, dataverse, dataset, schema=None, query=None, predicate=None, config_filepath=os.getcwd()+'/conf/sql_pp.ini', is_view=False):
+    def __init__(self, dataverse, dataset, schema=None, query=None, predicate=None, is_view=False, config_filepath=os.getcwd()+'/aframe/conf/sql_pp.ini'):
         # load in dataset definition
         self._dataverse = dataverse
         self._dataset = dataset
@@ -44,14 +44,14 @@ class AFrame:
         if self._is_view:
             return '{}();'.format(dataset)
         else:
-            init_query = AFrame.get_config_query(self._config,1)
+            init_query = AFrame.get_config_query(self._config, 1)
             return init_query.format(dataset)
 
     @staticmethod
     def get_config_query(file_path,q_number):
         config = configparser.ConfigParser()
         config.read(file_path)
-        return config['QUERIES']['q{}'.format(q_number)]
+        return str(config['QUERIES']['q{}'.format(q_number)])
 
     @staticmethod
     def get_server_address(file_path):
@@ -64,21 +64,21 @@ class AFrame:
 
     def __getitem__(self, key):
         if isinstance(key, AFrame):
-            new_query = self.create_query('SELECT VALUE t FROM (%s) t WHERE %s;' % (self.query[:-1], key.schema), selection=key.schema)
-            return type(self)(self._dataverse, self._dataset, key.schema, new_query,is_view=self._is_view)
+            new_query = AFrame.get_config_query(self._config, 5).format(self.query[:-1], key.schema)
+            return type(self)(self._dataverse, self._dataset, key.schema, new_query,is_view=self._is_view,config_filepath=self._config)
 
         if isinstance(key, str):
-            query = 'SELECT VALUE t.%s FROM (%s) t;' % (key, self.query[:-1])
-            return type(self)(self._dataverse, self._dataset, 't.%s' % key, query,is_view=self._is_view)
+            query = AFrame.get_config_query(self._config, 2).format(key, self.query[:-1])
+            return type(self)(self._dataverse, self._dataset, 't.%s' % key, query,is_view=self._is_view,config_filepath=self._config)
 
         if isinstance(key, (np.ndarray, list)):
             fields = ''
             for i in range(len(key)):
                 if i > 0:
                     fields += ', '
-                fields += 't.%s' % key[i]
-            query = self.create_query('SELECT %s FROM (%s) t;' % (fields, self.query[:-1]), projection=key)
-            return type(self)(self._dataverse, self._dataset, fields, query,is_view=self._is_view)
+                fields += key[i]
+            query = AFrame.get_config_query(self._config, 3).format(fields, self.query[:-1])
+            return type(self)(self._dataverse, self._dataset, fields, query,is_view=self._is_view,config_filepath=self._config)
 
     def __setitem__(self, key, value):
         dataset = self._dataverse + '.' + self._dataset
@@ -299,34 +299,37 @@ class AFrame:
             raise ValueError('no columns specified')
 
     def get_dataset(self, dataset,dataverse):
-        query = 'SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
-                'WHERE ds.DatasetName = \"%s\" AND ds.DatatypeName = dt.DatatypeName ' \
-                'AND dt. DataverseName = \"%s\";' % (dataset,dataverse)
-        # print(query)
-        result = self.send_request(query)
+        config = configparser.ConfigParser()
+        config.read(self._config)
+        if config['SERVER']['asterixdb'] == 'True':
+            query = 'SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
+                    'WHERE ds.DatasetName = \"%s\" AND ds.DatatypeName = dt.DatatypeName ' \
+                    'AND dt. DataverseName = \"%s\";' % (dataset,dataverse)
+            # print(query)
+            result = self.send_request(query)
 
-        if len(result) == 0:
-            raise ValueError('Cannot find %s.%s' %(dataverse,dataset))
-        else:
-            result = result[0]
-
-        is_open = result['Derived']['Record']['IsOpen']
-        if is_open:
-            self._datatype = 'open'
-        else:
-            self._datatype = 'close'
-        self._datatype_name = result['DatatypeName']
-        fields = result['Derived']['Record']['Fields']
-        for field in fields:
-            name = field['FieldName']
-            type = field['FieldType']
-            # nullable = field['IsNullable']
-            column = dict([(name, type)])
-            # column = name
-            if self._columns is None:
-                self._columns = [column]
+            if len(result) == 0:
+                raise ValueError('Cannot find %s.%s' %(dataverse,dataset))
             else:
-                self._columns.append(column)
+                result = result[0]
+
+            is_open = result['Derived']['Record']['IsOpen']
+            if is_open:
+                self._datatype = 'open'
+            else:
+                self._datatype = 'close'
+            self._datatype_name = result['DatatypeName']
+            fields = result['Derived']['Record']['Fields']
+            for field in fields:
+                name = field['FieldName']
+                type = field['FieldType']
+                # nullable = field['IsNullable']
+                column = dict([(name, type)])
+                # column = name
+                if self._columns is None:
+                    self._columns = [column]
+                else:
+                    self._columns.append(column)
 
     def join(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
 
@@ -810,9 +813,10 @@ class AFrame:
         else:
             selection = 't %s %s' % (opt, other)
             schema = '%s %s %s' % (self.schema, opt, other)
-        query = 'SELECT VALUE %s FROM (%s) t;' %(selection, self.query[:-1])
+        # query = 'SELECT VALUE %s FROM (%s) t;' %(selection, self.query[:-1])
+        query = AFrame.get_config_query(self._config, 4).format(selection, self.query[:-1])
 
-        return type(self)(self._dataverse, self._dataset, schema, query, is_view=self._is_view)
+        return type(self)(self._dataverse, self._dataset, schema, query, is_view=self._is_view,config_filepath=self._config)
 
     def __and__(self, other):
         return self.boolean_op(other, 'AND')
