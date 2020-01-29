@@ -1,8 +1,5 @@
 import pandas as pd
 import pandas.io.json as json
-import urllib.parse
-import urllib.request
-import urllib.error
 import aframe as af
 from aframe.connector import Connector
 
@@ -39,8 +36,6 @@ class AFrameGroupBy:
 
     def get_initial_query(self, old_query, by):
         by_lst = ','.join(by)
-        # query = 'SELECT * FROM (%s) t GROUP BY %s ' \
-        #         'GROUP AS grps(t AS grp);' % (old_query[:-1], by_lst)
         query = self._config_queries['q7']
         query = af.AFrame.rewrite(query, subquery=old_query[:-1], grp_by_attribute=by_lst)
         if self._schema:
@@ -50,7 +45,6 @@ class AFrameGroupBy:
         return query
 
     def get_group(self, key):
-        # new_query = 'SELECT VALUE t.grps FROM (%s) t WHERE %s=%s;' % (self.query[:-1], self._by, str(key))
         new_query = self._config_queries['q3']
         key_lst = []
         if isinstance(key, (list, tuple)):
@@ -65,8 +59,6 @@ class AFrameGroupBy:
                 key_lst[i] = str(self._by[i]) + " = " + k
             else:
                 key_lst[i] = str(self._by[i]) + " = " + str(k)
-        # condition = ' AND '.join(key_lst)
-        # condition = ''
         and_statement = self._config_queries['and']
         condition = af.AFrame.concat_statements(and_statement, key_lst)
         new_query = af.AFrame.rewrite(new_query, subquery=self._base_query[:-1], statement=condition)
@@ -83,21 +75,35 @@ class AFrameGroupBy:
         results = pd.DataFrame(self.send_request(new_query))
         return results
 
-    def agg(self, attr, func):
+    def agg(self, func):
+        if not isinstance(func, dict):
+            raise ValueError("Currently only support a dictionary of attribute:func or [funcs]")
+
         by_lst = ','.join(self._by)
+        query = self._config_queries['q8']
+        agg_statement = self._config_queries['agg_value']
+        agg_values = []
 
         functions = ['count', 'min', 'max', 'avg', 'sum', 'stddev_samp', 'stddev_pop', 'var_samp', 'var_pop']
-        if str(func).lower() in functions:
-            agg_statement = self._config_queries['agg_value']
-            query = self._config_queries['q8']
-            query = af.AFrame.rewrite(query, agg_value=agg_statement)
-            query = af.AFrame.rewrite(query, subquery=self._base_query[:-1], grp_by_attribute=by_lst, agg_func=func, attribute=attr)
-            # query = 'SELECT %s, %s(%s) FROM (%s) t ' % (by_lst, func, attr,func,self._base_query[:-1])
-            results = json.dumps(self.send_request(query))
-            df = pd.DataFrame(data=json.read_json(results))
-            return df
-        else:
-            raise ValueError('Aggregate function %s is not available' %func)
+        for key in func.keys():
+            if isinstance(func[key], list):
+                for func_val in func[key]:
+                    if str(func_val).lower() in functions:
+                        agg_values.append(af.AFrame.rewrite(agg_statement, agg_func=func_val, attribute=key))
+                    else:
+                        raise ValueError('Aggregate function %s is not available' % func)
+            else:
+                if str(func[key]).lower() in functions:
+                    agg_values.append(af.AFrame.rewrite(agg_statement, agg_func=func[key], attribute=key))
+                else:
+                    raise ValueError('Aggregate function %s is not available' % func)
+
+        agg_val_str = ','.join(agg_values)
+        query = af.AFrame.rewrite(query, subquery=self._base_query[:-1], grp_by_attribute=by_lst, agg_value=agg_val_str)
+
+        results = json.dumps(self.send_request(query))
+        df = pd.DataFrame(data=json.read_json(results))
+        return df
 
     def send_request(self, query: str):
         return self._con.send_request(query)

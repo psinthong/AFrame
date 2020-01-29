@@ -160,18 +160,15 @@ class AFrame:
         return self._columns
 
     def toPandas(self, sample: int = 0):
-        if self._dataset is None:
-            raise ValueError('no dataset specified')
+        if sample > 0:
+            query = '{} LIMIT {};'.format(self.query[:-1], sample)
         else:
-            dataset = self._dataverse+'.'+self._dataset
-            if sample > 0:
-                query = 'SELECT VALUE t FROM (%s) t LIMIT %d;' % (dataset, self.query[:-1])
-            else:
-                query = 'SELECT VALUE t FROM (%s) t;' % self.query[:-1]
-            result = self.send_request(query)
-            if '_uuid' in result.columns:
-                result.drop('_uuid', axis=1, inplace=True)
-            return result
+            query = self.query
+        result = self.send_request(query)
+        if '_uuid' in result.columns:
+            result.drop('_uuid', axis=1, inplace=True)
+        return result
+
 
     def collect(self):
         results = self.send_request(self.query)
@@ -879,21 +876,9 @@ class AFrame:
         # schema = func + '(' + self.schema + args_str + ')'
         schema = '%s(%s%s)' % (func, self.schema, args_str)
         new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query[:-1])
-
-        # predicate = None
-        # if self._predicate is not None:
-        #     predicate = self._predicate
-        #     new_query = 'SELECT VALUE %s(t.%s%s) FROM (%s) t WHERE %s;' % (func, self.schema, args_str, self.query[:-1], self._predicate)
-        # elif self._query is not None:
-        #     new_query = 'SELECT %s FROM (%s) t;' % (fields, self.query[:-1])
-        # else:
-        #     new_query = 'SELECT %s FROM %s t WHERE %s;' % (fields, dataset, self._schema)
-
         return AFrame(self._dataverse, self._dataset, schema, new_query, None, con=self._connector)
 
     def persist(self, name=None, dataverse=None, is_view=False):
-        # if self.schema is None:
-        #     raise ValueError('Cannot write to AsterixDB!')
         if name is None:
             raise ValueError('Need to provide a name for the new dataset.')
 
