@@ -65,8 +65,11 @@ class AFrameGroupBy:
                 key_lst[i] = str(self._by[i]) + " = " + k
             else:
                 key_lst[i] = str(self._by[i]) + " = " + str(k)
-        condition = ' AND '.join(key_lst)
-        new_query = af.AFrame.rewrite(new_query, subquery=self._base_query[:-1], condition=condition)
+        # condition = ' AND '.join(key_lst)
+        # condition = ''
+        and_statement = self._config_queries['and']
+        condition = af.AFrame.concat_statements(and_statement, key_lst)
+        new_query = af.AFrame.rewrite(new_query, subquery=self._base_query[:-1], statement=condition)
         results = json.dumps(self.send_request(new_query))
         df = pd.DataFrame(data=json.read_json(results))
         return df
@@ -85,7 +88,9 @@ class AFrameGroupBy:
 
         functions = ['count', 'min', 'max', 'avg', 'sum', 'stddev_samp', 'stddev_pop', 'var_samp', 'var_pop']
         if str(func).lower() in functions:
+            agg_statement = self._config_queries['agg_value']
             query = self._config_queries['q8']
+            query = af.AFrame.rewrite(query, agg_value=agg_statement)
             query = af.AFrame.rewrite(query, subquery=self._base_query[:-1], grp_by_attribute=by_lst, agg_func=func, attribute=attr)
             # query = 'SELECT %s, %s(%s) FROM (%s) t ' % (by_lst, func, attr,func,self._base_query[:-1])
             results = json.dumps(self.send_request(query))
