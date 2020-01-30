@@ -12,6 +12,8 @@ setup(name='aframe',
       url='http://github.com/psinthon/AFrame',
       author='Gift Sinthong',
       author_email='psinthon@uci.edu',
+      package_data={'aframe': ['conf/*.ini']},
+      include_package_data=True,
       install_requires=[
           'pandas',
           'numpy',

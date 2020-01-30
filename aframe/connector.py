@@ -1,5 +1,6 @@
 import pandas as pd
 import configparser
+import os
 
 
 class Connector:
@@ -21,7 +22,7 @@ class Connector:
     def get_config_queries(self):
         queries = {}
         config = configparser.ConfigParser()
-        config.read(self._config_file_path)
+        config.read(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'conf', self._config_file_path))
         for section in config.sections():
             for (key, value) in config.items(section):
                 queries[key] = value
@@ -31,7 +32,7 @@ class Connector:
 
 
 class AsterixConnector(Connector):
-    def __init__(self, server_address="http://localhost:19002", config_file_path="./aframe/conf/sql_pp.ini"):
+    def __init__(self, server_address="http://localhost:19002", config_file_path="sql_pp.ini"):
         Connector.__init__(self, server_address=server_address, config_file_path=config_file_path)
         self._db = self.connect(server_address)
 
@@ -62,7 +63,7 @@ class AsterixConnector(Connector):
 
 class SQLConnector(Connector):
 
-    def __init__(self, server_address=None, config_file_path="./aframe/conf/sql.ini", engine=None):
+    def __init__(self, server_address=None, config_file_path="sql.ini", engine=None):
         import sqlalchemy
         Connector.__init__(self, server_address, config_file_path)
         if isinstance(engine, sqlalchemy.engine.Engine):
