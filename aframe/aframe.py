@@ -11,7 +11,7 @@ from aframe.connector import Connector
 from aframe.connector import AsterixConnector
 import configparser
 import os
-
+import re
 
 class AFrame:
 
@@ -27,6 +27,7 @@ class AFrame:
         self._connector = con
 
         # initialize
+        con.get_collection(dataverse=dataverse,dataset=dataset)
         self._config_queries = con.get_config_queries()
         if not is_view and isinstance(con, AsterixConnector):
             self.get_dataset(dataverse=dataverse,dataset=dataset)
@@ -54,7 +55,7 @@ class AFrame:
         else:
             init_query = self.config_queries['q1']
             init_query = AFrame.rewrite(query=init_query, namespace=self._dataverse, collection=self._dataset)
-            return init_query.format(dataset)
+            return init_query
 
     @staticmethod
     def rewrite(query, **kwargs):
@@ -69,14 +70,14 @@ class AFrame:
         return config['SERVER']['address']
 
     @staticmethod
-    def concat_statements(statement, values):
+    def concat_statements(attr_format, statement, values):
         if len(values) == 1:
             return values[0]
         else:
             condition = ''
             for i in range(len(values) - 1):
-                left = condition if len(condition) > 0 else values[i]
-                right = values[i + 1]
+                left = condition if len(condition) > 0 else AFrame.rewrite(attr_format, attribute=values[i])
+                right = AFrame.rewrite(attr_format, attribute=values[i + 1])
                 condition = AFrame.rewrite(statement, left=left, right=right)
             return condition
 
@@ -90,15 +91,17 @@ class AFrame:
             return AFrame(self._dataverse, self._dataset, key.schema, new_query, is_view=self._is_view, con=self._connector)
 
         if isinstance(key, str):
+            attr = self.config_queries['attribute_project']
+            attr = AFrame.rewrite(attr, attribute=key)
             query = self.config_queries['q2']
-            query = AFrame.rewrite(query, attribute_value=key, subquery=self.query[:-1])
+            query = AFrame.rewrite(query, attribute_value=attr, subquery=self.query[:-1])
             return AFrame(self._dataverse, self._dataset, key, query,is_view=self._is_view, con=self._connector)
 
         if isinstance(key, (np.ndarray, list)):
             query = self.config_queries['q2']
-
+            attr_format = self.config_queries['attribute_project']
             attr_separator = self._config_queries['attribute_separator']
-            attributes = self.concat_statements(attr_separator, key)
+            attributes = self.concat_statements(attr_format, attr_separator, key)
 
             query = self.rewrite(query, attribute_value=attributes, alias='', subquery=self.query[:-1])
             return AFrame(self._dataverse, self._dataset, attributes, query, is_view=self._is_view, con=self._connector)
@@ -144,8 +147,13 @@ class AFrame:
         else:
             return 'Empty AsterixDB DataFrame'
 
-    def head(self, sample=5):
-        new_query = self.query[:-1] + ' LIMIT %d;' % sample
+    def head(self, sample=5, query=False):
+        limit_query = self.config_queries['limit']
+        new_query = AFrame.rewrite(limit_query, num=str(sample), subquery=self.query[:-1])
+        # new_query = self.query[:-1] + ' LIMIT %d;' % sample
+
+        if query:
+            return new_query
 
         result = self.send_request(new_query)
         if '_uuid' in result.columns:
@@ -780,7 +788,11 @@ class AFrame:
         new_query = self.config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         new_query = self.rewrite(new_query, attribute_value=col_alias)
-        new_query = self.rewrite(new_query, subquery=self.query[:-1], attribute=condition)
+
+        escape_chars = self.config_queries['escape']
+        alias = re.sub(escape_chars, '', str(condition))
+
+        new_query = self.rewrite(new_query, subquery=self.query[:-1], attribute=condition, alias=alias)
         return AFrame(self._dataverse, self._dataset, condition, new_query, is_view=self._is_view, con=self._connector)
 
     def max(self):
@@ -830,8 +842,9 @@ class AFrame:
         query = self.config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         query = self.rewrite(query, attribute_value=col_alias)
-        query = self.rewrite(query, attribute=comparison, subquery=self.query[:-1])
-
+        escape_chars = self.config_queries['escape']
+        alias = re.sub(escape_chars, '', str(comparison))
+        query = self.rewrite(query, alias=alias, attribute=comparison, subquery=self.query[:-1])
         return AFrame(self._dataverse, self._dataset, comparison, query, is_view=self._is_view, con=self._connector)
 
     def __and__(self, other):

@@ -60,7 +60,8 @@ class AFrameGroupBy:
             else:
                 key_lst[i] = str(self._by[i]) + " = " + str(k)
         and_statement = self._config_queries['and']
-        condition = af.AFrame.concat_statements(and_statement, key_lst)
+        attr_format = self._config_queries['attribute_value']
+        condition = af.AFrame.concat_statements(attr_format, and_statement, key_lst)
         new_query = af.AFrame.rewrite(new_query, subquery=self._base_query[:-1], statement=condition)
         results = json.dumps(self.send_request(new_query))
         df = pd.DataFrame(data=json.read_json(results))
@@ -75,12 +76,12 @@ class AFrameGroupBy:
         results = pd.DataFrame(self.send_request(new_query))
         return results
 
-    def agg(self, func):
+    def agg(self, func, query=False):
         if not isinstance(func, dict):
             raise ValueError("Currently only support a dictionary of attribute:func or [funcs]")
 
         by_lst = ','.join(self._by)
-        query = self._config_queries['q8']
+        agg_query = self._config_queries['q8']
         agg_statement = self._config_queries['agg_value']
         agg_values = []
 
@@ -99,9 +100,12 @@ class AFrameGroupBy:
                     raise ValueError('Aggregate function %s is not available' % func)
 
         agg_val_str = ','.join(agg_values)
-        query = af.AFrame.rewrite(query, subquery=self._base_query[:-1], grp_by_attribute=by_lst, agg_value=agg_val_str)
+        agg_query = af.AFrame.rewrite(agg_query, subquery=self._base_query[:-1], grp_by_attribute=by_lst, agg_value=agg_val_str)
 
-        results = json.dumps(self.send_request(query))
+        if query:
+            return agg_query
+
+        results = json.dumps(self.send_request(agg_query))
         df = pd.DataFrame(data=json.read_json(results))
         return df
 

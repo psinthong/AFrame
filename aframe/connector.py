@@ -1,6 +1,7 @@
 import pandas as pd
 import configparser
 import os
+import json
 
 
 class Connector:
@@ -26,9 +27,10 @@ class Connector:
         for section in config.sections():
             for (key, value) in config.items(section):
                 queries[key] = value
-        # for key in config['QUERIES']:
-        #     queries[key] = config['QUERIES'][key]
         return queries
+
+    def get_collection(self, dataverse, dataset):
+        pass
 
 
 class AsterixConnector(Connector):
@@ -79,3 +81,28 @@ class SQLConnector(Connector):
         result_obj = self._db.execute(query)
         results = result_obj.fetchall()
         return pd.DataFrame(results, columns=result_obj.keys())
+
+
+class MongoConnector(Connector):
+
+    def __init__(self, server_address=None, config_file_path="mongo.ini", engine=None):
+        from pymongo import MongoClient
+        Connector.__init__(self, server_address, config_file_path)
+        if isinstance(engine, MongoClient):
+            self._db = engine
+        else:
+            self._db = self.connect(db_str=self.server_address)
+
+    def connect(self, db_str):
+        from pymongo import MongoClient
+        return MongoClient(db_str)
+
+    def send_request(self, query):
+        p_lst = [json.loads(s) for s in query.split('\n')]
+        results = list(self._db.aggregate(pipeline=p_lst))
+        return pd.DataFrame(results)
+
+    def get_collection(self, dataverse, dataset):
+        from pymongo.collection import Collection
+        if not isinstance(self._db, Collection):
+            self._db = self._db[dataverse][dataset]
