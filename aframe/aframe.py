@@ -70,15 +70,17 @@ class AFrame:
         return config['SERVER']['address']
 
     @staticmethod
-    def concat_statements(attr_format, statement, values):
+    def concat_statements(attr_format, attr_separator, values):
+        if not isinstance(values, list):
+            raise ValueError("Expecting a list of attribute values")
         if len(values) == 1:
-            return values[0]
+            return AFrame.rewrite(attr_format, attribute=values[0])
         else:
             condition = ''
             for i in range(len(values) - 1):
                 left = condition if len(condition) > 0 else AFrame.rewrite(attr_format, attribute=values[i])
                 right = AFrame.rewrite(attr_format, attribute=values[i + 1])
-                condition = AFrame.rewrite(statement, left=left, right=right)
+                condition = AFrame.rewrite(attr_separator, left=left, right=right)
             return condition
 
     def __repr__(self):
@@ -87,14 +89,14 @@ class AFrame:
     def __getitem__(self, key):
         if isinstance(key, AFrame):
             new_query = self.config_queries['q3']
-            new_query = AFrame.rewrite(new_query, subquery=self.query[:-1], statement=key.schema)
+            new_query = AFrame.rewrite(new_query, subquery=self.query, statement=key.schema)
             return AFrame(self._dataverse, self._dataset, key.schema, new_query, is_view=self._is_view, con=self._connector)
 
         if isinstance(key, str):
             attr = self.config_queries['attribute_project']
             attr = AFrame.rewrite(attr, attribute=key)
             query = self.config_queries['q2']
-            query = AFrame.rewrite(query, attribute_value=attr, subquery=self.query[:-1])
+            query = AFrame.rewrite(query, attribute_value=attr, subquery=self.query)
             return AFrame(self._dataverse, self._dataset, key, query,is_view=self._is_view, con=self._connector)
 
         if isinstance(key, (np.ndarray, list)):
@@ -103,18 +105,18 @@ class AFrame:
             attr_separator = self._config_queries['attribute_separator']
             attributes = self.concat_statements(attr_format, attr_separator, key)
 
-            query = self.rewrite(query, attribute_value=attributes, alias='', subquery=self.query[:-1])
+            query = self.rewrite(query, attribute_value=attributes, alias='', subquery=self.query)
             return AFrame(self._dataverse, self._dataset, attributes, query, is_view=self._is_view, con=self._connector)
 
     def __setitem__(self, key, value):
         dataset = self._dataverse + '.' + self._dataset
         if not isinstance(key, str):
             raise ValueError('Must provide a string name for the appended column.')
-        if isinstance(value, OrderedAFrame):
-            new_query = 'SELECT t.*, %s %s FROM %s t;' % (value._columns, key, dataset)
-            self.query = new_query
+        # if isinstance(value, OrderedAFrame):
+        #     new_query = 'SELECT t.*, %s %s FROM %s t;' % (value._columns, key, dataset)
+        #     self.query = new_query
         new_query = self.config_queries['q9']
-        new_query = self.rewrite(new_query, statement=value.schema, alias=key, subquery=self.query[:-1])
+        new_query = self.rewrite(new_query, statement=value.schema, alias=key, subquery=self.query)
         schema = value.schema
         if self._schema is not None:
             if isinstance(self._schema, list):
@@ -130,12 +132,9 @@ class AFrame:
         self._info['count'] = result
         return result
 
-    def create_query(self, query, selection=None, projection=None):
-        return query
-
     def get_count(self):
         query = self.config_queries['q4']
-        query = AFrame.rewrite(query, subquery=self.query[:-1])
+        query = AFrame.rewrite(query, subquery=self.query)
 
         result = self.send_request(query).iloc[0]
         return int(result)
@@ -149,7 +148,7 @@ class AFrame:
 
     def head(self, sample=5, query=False):
         limit_query = self.config_queries['limit']
-        new_query = AFrame.rewrite(limit_query, num=str(sample), subquery=self.query[:-1])
+        new_query = AFrame.rewrite(limit_query, num=str(sample), subquery=self.query)
         # new_query = self.query[:-1] + ' LIMIT %d;' % sample
 
         if query:
@@ -169,7 +168,7 @@ class AFrame:
 
     def toPandas(self, sample: int = 0):
         if sample > 0:
-            query = '{} LIMIT {};'.format(self.query[:-1], sample)
+            query = '{} LIMIT {};'.format(self.query, sample)
         else:
             query = self.query
         result = self.send_request(query)
@@ -220,7 +219,7 @@ class AFrame:
         #     raise ValueError('A column must be of type \'AFrameObj\'')
         if isinstance(col, AFrame) and not appended:
             schema = 'unnest(%s)' % col.schema
-            new_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % col.query[:-1]
+            new_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % col.query
             return type(self)(self._dataverse, self._dataset, schema, new_query)
         elif isinstance(col, AFrame) and appended:
             if not name:
@@ -241,7 +240,7 @@ class AFrame:
         return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
 
     def notna(self):
-        query = 'SELECT VALUE t FROM (%s) AS t WHERE ' % self.query[:-1]
+        query = 'SELECT VALUE t FROM (%s) AS t WHERE ' % self.query
         if isinstance(self.schema, (np.ndarray, list)):
             fields = self.schema
             fields_str = ''
@@ -257,7 +256,7 @@ class AFrame:
         return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=schema, query=query, is_view=self._is_view, con=self._connector)
 
     def isna(self):
-        query = 'SELECT VALUE t FROM (%s) AS t WHERE ' % self.query[:-1]
+        query = 'SELECT VALUE t FROM (%s) AS t WHERE ' % self.query
         schema = self.schema
         if isinstance(self.schema, (np.ndarray, list)):
             fields = self.schema
@@ -284,7 +283,7 @@ class AFrame:
         if not isinstance(other, AFrame):
             raise ValueError('A column must be of type \'AFrameObj\'')
         if isinstance(other, AFrame):
-            query = 'SELECT VALUE count(*) FROM (%s) t;' % other.query[:-1]
+            query = 'SELECT VALUE count(*) FROM (%s) t;' % other.query
             # print(query)
             return other.send_request(query).iloc[0]
 
@@ -352,10 +351,10 @@ class AFrame:
             if how not in join_types:
                 raise NotImplementedError('Join type specified is not yet available')
 
-            l_dataset = '(%s)' % self.query[:-1]
-            r_dataset = '(%s)' % other.query[:-1]
+            l_dataset = '(%s)' % self.query
+            r_dataset = '(%s)' % other.query
             if other.query is not None:
-                r_dataset = '(%s)' % other.query[:-1]
+                r_dataset = '(%s)' % other.query
 
             if left_on != right_on:
                 query = 'SELECT VALUE object_merge(%s,%s) '% (lsuffix, rsuffix) + 'FROM %s %s ' %(l_dataset, lsuffix) +\
@@ -388,38 +387,33 @@ class AFrame:
                 else:
                     args_str += ', %s = %s' % (key, str(value))
         schema = func + '(t' + args_str + ')'
-        new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query[:-1])
+        new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query)
         return AFrame(self._dataverse, self._dataset, schema, new_query, is_view=self._is_view, con=self._connector)
 
     def sort_values(self, by, ascending=True):
 
-
-        # new_query = 'SELECT VALUE t FROM (%s) t ' % self.query[:-1]
+        by_attrs = []
         if isinstance(by, str):
-            if ascending:
-                # new_query += 'ORDER BY t.%s ;' % by
-                new_query = self.config_queries['q6']
-                new_query = AFrame.rewrite(new_query, subquery=self.query[:-1], attribute=by)
-            else:
-                # new_query += 'ORDER BY t.%s DESC;' % by
-                new_query = self.config_queries['q5']
-                new_query = AFrame.rewrite(new_query, subquery=self.query[:-1], attribute=by)
+            by_attrs.append(by)
+        elif isinstance(by, (np.ndarray, list)):
+            by_attrs = by
 
-        if isinstance(by, (np.ndarray, list)):
-            by_list = ''
-            for i in range(len(by)):
-                if i > 0:
-                    by_list += ', '
-                    by_list += by[i]
-            if ascending:
-                # new_query += 'ORDER BY %s;' % by_list
-                new_query = self.config_queries['q6']
-                new_query = AFrame.rewrite(new_query, subquery=self.query[:-1], attribute=by_list)
-            else:
-                # new_query += 'ORDER BY %s DESC;' % by_list
-                new_query = self.config_queries['q5']
-                new_query = AFrame.rewrite(new_query, subquery=self.query[:-1], attribute=by_list)
-        schema = 'ORDER BY %s' % by
+        if ascending:
+            sort_order = 'sort_asc_attr'
+            new_query = self.config_queries['q6']
+            attr_format = self.config_queries[sort_order]
+            attr_separator = self._config_queries['attribute_separator']
+            attributes = self.concat_statements(attr_format, attr_separator, by_attrs)
+            new_query = AFrame.rewrite(new_query, subquery=self.query, sort_asc_attr=attributes)
+        else:
+            sort_order = 'sort_desc_attr'
+            new_query = self.config_queries['q5']
+            attr_format = self.config_queries[sort_order]
+            attr_separator = self._config_queries['attribute_separator']
+            attributes = self.concat_statements(attr_format, attr_separator, by_attrs)
+            new_query = AFrame.rewrite(new_query, subquery=self.query, sort_desc_attr=attributes)
+
+        schema = new_query
         return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
 
     def describe(self):
@@ -459,8 +453,8 @@ class AFrame:
             attr_sqr = 'power(%s - t.%s, 2) AS %s,' % (stats[key+'_mean'], key, key)
             sqr_query += attr_sqr
             std_query += attr_std
-        std_query = std_query[:-1]
-        sqr_query = sqr_query[:-1]
+        std_query = std_query
+        sqr_query = sqr_query
         std_query += ' FROM '
         std_query += sqr_query
         std_query += ' FROM %s t) square;' % dataset
@@ -510,7 +504,7 @@ class AFrame:
                     "ms_from_day_time_duration(" \
                     "duration_from_interval(" \
                     "interval(min(t), max(t))))/%d)) " \
-                    "FROM (%s) t;" % (bins, attr.query[:-1])
+                    "FROM (%s) t;" % (bins, attr.query)
             result = self.send_request(query).iloc[0]
             return result
 
@@ -557,14 +551,14 @@ class AFrame:
         else:
             raise ValueError('drop() takes a list of column names')
         schema = 'OBJECT_REMOVE_FIELDS(t, [%s])' % remove_list
-        new_query = 'SELECT VALUE OBJECT_REMOVE_FIELDS(t, [%s]) FROM (%s) t;' % (remove_list, self.query[:-1])
+        new_query = 'SELECT VALUE OBJECT_REMOVE_FIELDS(t, [%s]) FROM (%s) t;' % (remove_list, self.query)
         return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
 
     def unique(self, sample=0):
         if sample == 0:
-            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t;' % self.query[:-1]
+            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t;' % self.query
         elif sample > 0:
-            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t LIMIT %d;' % (self.query[:-1], sample)
+            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t LIMIT %d;' % (self.query, sample)
         else:
             raise ValueError('Number of returning records must be > 0.')
         result = self.send_request(new_query)
@@ -576,7 +570,7 @@ class AFrame:
             if columns is None:
                 cols = af.unique()
                 conditions, schemas = AFrame.get_conditions(af, cols)
-                query = 'SELECT %s FROM (%s) t;' % (conditions, af.query[:-1])
+                query = 'SELECT %s FROM (%s) t;' % (conditions, af.query)
                 return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
             else:
                 if isinstance(columns,list):
@@ -589,7 +583,7 @@ class AFrame:
                         schemas += schemas_i+','
                     conditions = conditions[:-1]
                     schemas = schemas[:-1]
-                    query = 'SELECT t.*, %s FROM (%s) t;' % (conditions, af.query[:-1])
+                    query = 'SELECT t.*, %s FROM (%s) t;' % (conditions, af.query)
                     return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
 
         else:
@@ -636,7 +630,7 @@ class AFrame:
                     raise ValueError("list elements must be AFrame objects")
             conditions = conditions[:-1]
             if isinstance(first_obj,AFrame):
-                query = 'SELECT t.*, %s FROM (%s) t;' %(conditions, first_obj.query[:-1])
+                query = 'SELECT t.*, %s FROM (%s) t;' %(conditions, first_obj.query)
                 return AFrame(first_obj._dataverse, first_obj._dataset, 't.*,%s' % conditions, query, is_view=first_obj._is_view, con=first_obj._connector)
 
     @staticmethod
@@ -647,7 +641,7 @@ class AFrame:
             if not isinstance(bins, int):
                 raise ValueError('Input bins has to be an integer')
             else:
-                min_date = af.get_min_date(af.query[:-1])
+                min_date = af.get_min_date(af.query)
                 bin_size = af.get_bin_size(af, bins)
 
                 if 'datetime' in min_date:
@@ -659,7 +653,7 @@ class AFrame:
 
                 new_query = 'SELECT VALUE \n' \
                             '%s \n' \
-                            'FROM (%s) t;' % (bin_query, af.query[:-1])
+                            'FROM (%s) t;' % (bin_query, af.query)
                 return AFrame(af._dataverse, af._dataset, new_schema, new_query, con=af._connector)
 
 
@@ -709,7 +703,7 @@ class AFrame:
                     new_query += case
                     schema += case_schema
                     lower_bound = upper_bound
-                new_query += 'END FROM (%s) t;' %af.query[:-1]
+                new_query += 'END FROM (%s) t;' %af.query
                 schema += 'END'
                 return AFrame(af._dataverse, af._dataset, schema,query=new_query, con=af._connector)
             if isinstance(bins, list) & len(bins) > 0:
@@ -726,7 +720,7 @@ class AFrame:
                     new_query += case
                     schema += case_schema
                     lower_bound = upper_bound
-                new_query += 'END FROM (%s) t;' % af.query[:-1]
+                new_query += 'END FROM (%s) t;' % af.query
                 schema += 'END'
                 return AFrame(af._dataverse, af._dataset, schema, query=new_query, con=af._connector)
 
@@ -782,7 +776,7 @@ class AFrame:
         return self.arithmetic_op(value, 'pow')
 
     def arithmetic_op(self, value, op):
-        # new_query = 'SELECT VALUE t %s %s FROM (%s) t;' % (op, str(value), self.query[:-1])
+        # new_query = 'SELECT VALUE t %s %s FROM (%s) t;' % (op, str(value), self.query)
         arithmetic_statement = self.config_queries[op]
         condition = AFrame.rewrite(arithmetic_statement, left=self.schema, right=str(value))
         new_query = self.config_queries['q2']
@@ -792,7 +786,7 @@ class AFrame:
         escape_chars = self.config_queries['escape']
         alias = re.sub(escape_chars, '', str(condition))
 
-        new_query = self.rewrite(new_query, subquery=self.query[:-1], attribute=condition, alias=alias)
+        new_query = self.rewrite(new_query, subquery=self.query, attribute=condition, alias=alias)
         return AFrame(self._dataverse, self._dataset, condition, new_query, is_view=self._is_view, con=self._connector)
 
     def max(self):
@@ -808,7 +802,7 @@ class AFrame:
         return self.agg_function('count')
 
     def agg_function(self, func):
-        new_query = 'SELECT VALUE %s(t) FROM (%s) t;' % (func, self.query[:-1])
+        new_query = 'SELECT VALUE %s(t) FROM (%s) t;' % (func, self.query)
         result = self.send_request(new_query)
         return result.iloc[0]
 
@@ -837,14 +831,14 @@ class AFrame:
             comparison = AFrame.rewrite(comparison_statement, left=self.schema, right="'"+other+"'")
         else:
             comparison = AFrame.rewrite(comparison_statement, left=self.schema, right=str(other))
-        # query = 'SELECT VALUE %s FROM (%s) t;' %(selection, self.query[:-1])
+        # query = 'SELECT VALUE %s FROM (%s) t;' %(selection, self.query)
 
         query = self.config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         query = self.rewrite(query, attribute_value=col_alias)
         escape_chars = self.config_queries['escape']
         alias = re.sub(escape_chars, '', str(comparison))
-        query = self.rewrite(query, alias=alias, attribute=comparison, subquery=self.query[:-1])
+        query = self.rewrite(query, alias=alias, attribute=comparison, subquery=self.query)
         return AFrame(self._dataverse, self._dataset, comparison, query, is_view=self._is_view, con=self._connector)
 
     def __and__(self, other):
@@ -860,7 +854,9 @@ class AFrame:
         new_query = self.config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         new_query = AFrame.rewrite(new_query, attribute_value=col_alias)
-        new_query = AFrame.rewrite(new_query, subquery=self.query[:-1], attribute=logical_statement)
+        escape_chars = self.config_queries['escape']
+        alias = re.sub(escape_chars, '', str(logical_statement))
+        new_query = AFrame.rewrite(new_query, subquery=self.query, attribute=logical_statement, alias=alias)
         return AFrame(self._dataverse, self._dataset, logical_statement, new_query, is_view=self._is_view, con=self._connector)
 
     def get_dataverse(self):
@@ -888,7 +884,7 @@ class AFrame:
                     args_str += ', %s = %s' % (key, str(value))
         # schema = func + '(' + self.schema + args_str + ')'
         schema = '%s(%s%s)' % (func, self.schema, args_str)
-        new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query[:-1])
+        new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query)
         return AFrame(self._dataverse, self._dataset, schema, new_query, None, con=self._connector)
 
     def persist(self, name=None, dataverse=None, is_view=False):
@@ -897,7 +893,7 @@ class AFrame:
 
         if is_view:
             function_name = '%s.%s' %(dataverse, name)
-            function_query = 'CREATE FUNCTION %s(){%s};' % (function_name, self.query[:-1])
+            function_query = 'CREATE FUNCTION %s(){%s};' % (function_name, self.query)
             self.send(function_query)
             new_q = 'SELECT VALUE t FROM (%s()) t;' % function_name
             return AFrame(dataverse=dataverse, dataset=name, query=new_q, is_view=True, con=self._connector)
@@ -905,12 +901,12 @@ class AFrame:
             self.create_tmp_dataverse(dataverse)
             if dataverse:
                 new_q = 'create dataset %s.%s(TempType) primary key _uuid autogenerated;' % (dataverse, name)
-                new_q += '\n insert into %s.%s select value ((%s));' % (dataverse, name, self.query[:-1])
+                new_q += '\n insert into %s.%s select value ((%s));' % (dataverse, name, self.query)
                 self.send(new_q)
                 return AFrame(dataverse, name, con=self._connector)
             else:
                 new_q = 'create dataset _Temp.%s(TempType) primary key _uuid autogenerated;' % name
-                new_q += '\n insert into _Temp.%s select value ((%s));' % (name, self.query[:-1])
+                new_q += '\n insert into _Temp.%s select value ((%s));' % (name, self.query)
                 self.send(new_q)
                 return AFrame('_Temp', name, con=self._connector)
 
@@ -980,12 +976,12 @@ class NestedAFrame(AFrame):
     def head(self, sample=5):
         dataset = self._dataverse + '.' + self._dataset
         if self._query is not None:
-            new_query = self._query[:-1]+' LIMIT %d;' % sample
+            new_query = self._query+' LIMIT %d;' % sample
             results = self.send_request(new_query)
             norm_result = json_normalize(results)
         else:
             self._query = 'SELECT VALUE t FROM %s t;' % dataset
-            new_query = self._query[:-1] + ' LIMIT %d;' % sample
+            new_query = self._query + ' LIMIT %d;' % sample
             results = self.send_request(new_query)
             norm_result = json_normalize(results)
         norm_cols = norm_result.columns.str.split('.', expand=True).values
@@ -1022,7 +1018,7 @@ class OrderedAFrame(AFrame):
 
     def validate_agg_func(self, func, arg=None):
         over = self.get_window()
-        dataset = '(%s)' % self.query[:-1]
+        dataset = '(%s)' % self.query
         if self.on is not None:
             if arg is None:
                 col = '%s(t.%s) %s' % (func, self.on, over)
@@ -1121,7 +1117,7 @@ class OrderedAFrame(AFrame):
         return result
 
     def validate_window_function(self, func):
-        dataset = '(%s)' % self.query[:-1]
+        dataset = '(%s)' % self.query
         over = self.get_window()
         columns = '%s() %s' % (func, over)
         query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
@@ -1130,7 +1126,7 @@ class OrderedAFrame(AFrame):
     def validate_window_function_argument(self, func, expr, ignore_null):
         if not isinstance(expr,str):
             raise ValueError('expr for first_value must be string')
-        dataset = '(%s)' % self.query[:-1]
+        dataset = '(%s)' % self.query
         over = self.get_window()
         columns = '%s(%s) %s' % (func, expr, over)
         if ignore_null:
@@ -1145,7 +1141,7 @@ class OrderedAFrame(AFrame):
         if not isinstance(offset,int):
             error_msg = 'offset for %s must be an integer' % func
             raise ValueError(error_msg)
-        dataset = '(%s)' % self.query[:-1]
+        dataset = '(%s)' % self.query
         over = self.get_window()
         columns = '%s(%s, %d) %s' % (func, expr, offset, over)
         if ignore_null:

@@ -49,7 +49,7 @@ class AsterixConnector(Connector):
 
         host = self._server_address + '/query/service'
         data = dict()
-        data['statement'] = query
+        data['statement'] = query + ';'
         data = urllib.parse.urlencode(data).encode('utf-8')
         try:
             handler = urllib.request.urlopen(host, data)
@@ -99,7 +99,7 @@ class MongoConnector(Connector):
 
     def send_request(self, query):
         p_lst = [json.loads(s) for s in query.split('\n')]
-        results = list(self._db.aggregate(pipeline=p_lst))
+        results = list(self._db.aggregate(pipeline=p_lst, allowDiskUse=True))
         return pd.DataFrame(results)
 
     def get_collection(self, dataverse, dataset):
