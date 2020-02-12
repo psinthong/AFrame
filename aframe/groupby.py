@@ -48,7 +48,7 @@ class AFrameGroupBy:
         query = af.AFrame.rewrite(query, subquery=old_query, grp_by_attribute=attributes)
         return query
 
-    def get_group(self, key):
+    def get_group(self, key, query=False):
         new_query = self._config_queries['q3']
         key_lst = []
         if isinstance(key, (list, tuple)):
@@ -66,6 +66,10 @@ class AFrameGroupBy:
         condition = self.get_group_condition(key_lst)
 
         new_query = af.AFrame.rewrite(new_query, subquery=self._base_query, statement=condition)
+
+        if query:
+            return new_query
+
         results = json.dumps(self.send_request(new_query))
         df = pd.DataFrame(data=json.read_json(results))
         return df
@@ -115,6 +119,8 @@ class AFrameGroupBy:
         results = json.dumps(self.send_request(agg_query))
         df = pd.DataFrame(data=json.read_json(results))
         return df
+
+    aggregate = agg
 
     def get_agg_str(self, agg_statement, attr_separator, func):
         agg_values = []
