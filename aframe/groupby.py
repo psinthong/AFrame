@@ -118,6 +118,7 @@ class AFrameGroupBy:
 
         results = json.dumps(self.send_request(agg_query))
         df = pd.DataFrame(data=json.read_json(results))
+        df = df.sort_values(self._by).set_index(self._by)
         return df
 
     aggregate = agg

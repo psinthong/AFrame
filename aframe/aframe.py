@@ -168,10 +168,8 @@ class AFrame:
 
     def toPandas(self, sample: int = 0):
         if sample > 0:
-            query = '{} LIMIT {};'.format(self.query, sample)
-        else:
-            query = self.query
-        result = self.send_request(query)
+            return self.head(sample)
+        result = self.send_request(self.query)
         if '_uuid' in result.columns:
             result.drop('_uuid', axis=1, inplace=True)
         return result
