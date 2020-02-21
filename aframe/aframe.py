@@ -12,6 +12,7 @@ from aframe.connector import AsterixConnector
 import configparser
 import os
 import re
+import copy
 
 class AFrame:
 
@@ -116,15 +117,18 @@ class AFrame:
         #     new_query = 'SELECT t.*, %s %s FROM %s t;' % (value._columns, key, dataset)
         #     self.query = new_query
         new_query = self.config_queries['q9']
-        new_query = self.rewrite(new_query, statement=value.schema, alias=key, subquery=self.query)
-        schema = value.schema
+        new_field_format = self.config_queries['attribute_value']
+        new_field_format = self.rewrite(new_field_format, attribute=value.schema, alias=key)
+        new_query = self.rewrite(new_query, attribute_value=new_field_format, subquery=self.query)
+
         if self._schema is not None:
             if isinstance(self._schema, list):
-                self._schema.append(schema)
+                self._schema.append(new_field_format)
             elif isinstance(self._schema, str):
-                self._schema = self._schema+','+schema
+                self._schema = [self._schema]
+                self._schema.append(new_field_format)
         else:
-            self._schema = [schema]
+            self._schema = [new_field_format]
         self.query = new_query
 
     def __len__(self):
@@ -540,52 +544,116 @@ class AFrame:
     def drop(self, attrs, axis=1):
         if axis != 1:
             raise ValueError('drop() currently only supports dropping columns')
+        remove_list = ''
+        attr_format = self.config_queries['attribute_remove']
         if isinstance(attrs, str):
-            remove_list = "\"%s\"" % attrs
+            attr_format = self.rewrite(attr_format, attribute=attrs)
+            remove_list = attr_format
         elif isinstance(attrs, list):
-            attrs = ['\"%s\"'% i for i in attrs]
-            sep = ','
-            remove_list = sep.join(attrs)
+            attr_separator = self.config_queries['attribute_separator']
+            remove_list = self.concat_statements(attr_format, attr_separator, attrs)
         else:
             raise ValueError('drop() takes a list of column names')
-        schema = 'OBJECT_REMOVE_FIELDS(t, [%s])' % remove_list
-        new_query = 'SELECT VALUE OBJECT_REMOVE_FIELDS(t, [%s]) FROM (%s) t;' % (remove_list, self.query)
-        return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
+        # schema = 'OBJECT_REMOVE_FIELDS(t, [%s])' % remove_list
+        new_query = self.config_queries['q11']
+        new_query = self.rewrite(new_query, attribute_remove=remove_list, subquery=self.query)
+        return AFrame(self._dataverse, self._dataset, self.schema, new_query, con=self._connector)
 
-    def unique(self, sample=0):
-        if sample == 0:
-            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t;' % self.query
-        elif sample > 0:
-            new_query = 'SELECT DISTINCT VALUE t FROM (%s) t LIMIT %d;' % (self.query, sample)
-        else:
-            raise ValueError('Number of returning records must be > 0.')
+    def astype(self, type, columns=None, inplace=False):
+        new_type_cols = ''
+        if not columns:
+            if isinstance(self.schema, list):
+                columns = self.schema
+            else:
+                columns = [self.schema]
+        for col in columns:
+                escape_chars = self.config_queries['escape']
+                format_col = re.sub(escape_chars, '', str(col))
+                if type == 'int32':
+                    new_type = self.config_queries['to_int32']
+                    new_type = self.rewrite(new_type, statement=col)
+                    cast_type_format = self.config_queries['to_int32_field']
+                    cast_type_format = self.rewrite(cast_type_format, attribute=format_col)
+                # new_type_cols.append(new_type)
+                attr_format = self.config_queries['attribute_value']
+                attr_format = self.rewrite(attr_format, attribute=cast_type_format, alias=format_col)
+                attr_separator = self._config_queries['attribute_separator']
+
+                if new_type_cols == '':
+                    new_type_cols = attr_format
+                else:
+                    left=new_type_cols
+                    right = attr_format
+                    new_type_cols = AFrame.rewrite(attr_separator, left=left, right=right)
+
+            # query = self.config_queries['q2']
+
+        # attributes = self.concat_statements(attr_format, attr_separator, new_type_cols)
+
+        # new_type_alias = re.sub(escape_chars, '', str(new_type))
+        # attr_value = self.config_queries['attribute_value']
+        # atttr_value = self.rewrite(attr_value, attribute=new_type, alias=new_type_alias)
+
+        new_query = self.config_queries['q2']
+        new_query = self.rewrite(new_query, attribute_value=new_type_cols, subquery=self.query)
+        return AFrame(self._dataverse, self._dataset, new_type, new_query, is_view=self._is_view, con=self._connector)
+
+    def unique(self, sample=0, query=False):
+        new_query = self.config_queries['q10']
+        new_query = self.rewrite(new_query, attribute=self.schema, subquery=self.query)
+        if sample > 0:
+            new_query = self.config_queries['limit']
+            new_query = self.rewrite(new_query, num=sample, subquery=self.query)
+        if query:
+            return new_query
         result = self.send_request(new_query)
+        result = result.values.flatten().tolist()
         return result
 
     @staticmethod
-    def get_dummies(af,columns=None):
-        if isinstance(af, AFrame):
-            if columns is None:
-                cols = af.unique()
-                conditions, schemas = AFrame.get_conditions(af, cols)
-                query = 'SELECT %s FROM (%s) t;' % (conditions, af.query)
-                return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
-            else:
-                if isinstance(columns,list):
-                    conditions = ""
-                    schemas = ""
-                    for col in columns:
-                        cols = af[col].unique()
-                        cons_i, schemas_i = AFrame.get_conditions(af, cols, str(col))
-                        conditions += cons_i+','
-                        schemas += schemas_i+','
-                    conditions = conditions[:-1]
-                    schemas = schemas[:-1]
-                    query = 'SELECT t.*, %s FROM (%s) t;' % (conditions, af.query)
-                    return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
+    def get_dummies(af, prefix=False):
+        added_cols = []
+        tmp_af = copy.copy(af)
+        if isinstance(tmp_af, AFrame):
+            encoded_col = af.schema
+            cols = tmp_af.unique()
+            for col in cols:
+                is_col = af == col
+                cast_col = is_col.astype('int32', columns=[is_col.schema])
+                if prefix:
+                    col = encoded_col + '_' + str(col)
+                tmp_af[str(col)] = cast_col
+                if isinstance(tmp_af.schema, list):
+                    added_schema = tmp_af.schema[-1]
+                elif isinstance(tmp_af.schema, str):
+                    added_schema = tmp_af.schema.split(',')[-1]
+                added_cols.append(added_schema)
+            tmp_af = tmp_af.drop(encoded_col)
+            # new_af = tmp_af.astype('int32', columns=cols)
+            # if columns is None:
+            #     cols = af.unique()
+            #     conditions, schemas = AFrame.get_conditions(af, cols)
+            #     query = 'SELECT %s FROM (%s) t;' % (conditions, af.query)
+            #     return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
+            # else:
+            #     if isinstance(columns,list):
+            #         conditions = ""
+            #         schemas = ""
+            #         for col in columns:
+            #             cols = af[col].unique()
+            #             cons_i, schemas_i = AFrame.get_conditions(af, cols, str(col))
+            #             conditions += cons_i+','
+            #             schemas += schemas_i+','
+            #         conditions = conditions[:-1]
+            #         schemas = schemas[:-1]
+            #         query = 'SELECT t.*, %s FROM (%s) t;' % (conditions, af.query)
+            #         return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
 
         else:
             raise ValueError("must be an AFrame object")
+
+        tmp_af._schema = added_cols
+        return tmp_af
 
     @staticmethod
     def get_conditions(af, cols, prefix=None):
@@ -619,17 +687,40 @@ class AFrame:
             raise NotImplementedError('Currently only supports concatenating columns (axis=1)')
         if isinstance(objs, list):
             first_obj = objs[0]
-            conditions = ''
+            appended_cols = ''
+            new_schema = []
             for obj in objs[1:]:
                 if isinstance(obj, AFrame):
-                    condition = '%s,' % obj.schema
-                    conditions += condition
+                    if isinstance(obj.schema, list):
+                        new_schema.extend(obj.schema)
+
+                        if len(obj.schema) == 1:
+                            appended_cols += obj.schema[0]
+                        else:
+                            for i in range(len(obj.schema)-1):
+                                format_col = obj.config_queries['attribute_separator']
+                                if appended_cols == '':
+                                    left = obj.schema[i]
+                                else:
+                                    left = appended_cols
+                                right = obj.schema[i+1]
+
+                                appended_cols = obj.rewrite(format_col, left=left, right=right)
+                    else:
+                        print()
+
                 else:
                     raise ValueError("list elements must be AFrame objects")
-            conditions = conditions[:-1]
+
             if isinstance(first_obj,AFrame):
-                query = 'SELECT t.*, %s FROM (%s) t;' %(conditions, first_obj.query)
-                return AFrame(first_obj._dataverse, first_obj._dataset, 't.*,%s' % conditions, query, is_view=first_obj._is_view, con=first_obj._connector)
+                if isinstance(first_obj.schema, list):
+                    new_schema.extend(first_obj.schema)
+                elif first_obj.schema is not None:
+                    new_schema.append(first_obj.schema)
+
+                new_query = first_obj.config_queries['q9']
+                new_query = first_obj.rewrite(new_query, attribute_value=appended_cols, subquery=first_obj.query)
+                return AFrame(first_obj._dataverse, first_obj._dataset, new_schema, new_query, is_view=first_obj._is_view, con=first_obj._connector)
 
     @staticmethod
     def cut_date(af,bins):
