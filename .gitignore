@@ -5,6 +5,7 @@ __pycache__/
 test.py
 testSpark.py
 test_config.py
+test_*.py
 *_perf.py
 *_perf_2.py
 prep.py
