@@ -127,17 +127,19 @@ class AFrameGroupBy:
         agg_values = []
         functions = ['count', 'min', 'max', 'avg', 'sum', 'stddev_samp', 'stddev_pop', 'var_samp', 'var_pop']
         for key in func.keys():
-            if isinstance(func[key], list):
-                for func_val in func[key]:
-                    if str(func_val).lower() in functions:
-                        agg_values.append(af.AFrame.rewrite(agg_statement, agg_func=func_val, attribute=key))
-                    else:
-                        raise ValueError('Aggregate function %s is not available' % func)
-            else:
-                if str(func[key]).lower() in functions:
-                    agg_values.append(af.AFrame.rewrite(agg_statement, agg_func=func[key], attribute=key))
+            attr_func_lst = []
+            if isinstance(func[key], str):
+                attr_func_lst.append(func[key])
+            elif isinstance(func[key], list):
+                attr_func_lst = func[key]
+            for func_val in attr_func_lst:
+                if str(func_val).lower() in functions:
+                    func_format = self._config_queries[func_val]
+                    agg_func_format = af.AFrame.rewrite(agg_statement, func=func_format)
+                    agg_values.append(af.AFrame.rewrite(agg_func_format, agg_func=func_val, attribute=key))
                 else:
                     raise ValueError('Aggregate function %s is not available' % func)
+
         # grp_attributes = af.AFrame.concat_statements(agg_statement, attr_separator, self._by)
         if len(agg_values) == 1:
             agg_val_str = agg_values

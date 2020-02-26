@@ -26,7 +26,7 @@ class Connector:
         config.read(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'conf', self._config_file_path))
         for section in config.sections():
             for (key, value) in config.items(section):
-                queries[key] = value
+                queries[key] = value.replace('\n', '\r\n')
         return queries
 
     def get_collection(self, dataverse, dataset):
@@ -98,7 +98,7 @@ class MongoConnector(Connector):
         return MongoClient(db_str)
 
     def send_request(self, query):
-        p_lst = [json.loads(s) for s in query.split('\n')]
+        p_lst = [json.loads(s.strip(',')) for s in query.split('\r\n')]
         results = list(self._db.aggregate(pipeline=p_lst, allowDiskUse=True))
         return pd.DataFrame(results)
 

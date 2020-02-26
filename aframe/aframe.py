@@ -107,7 +107,7 @@ class AFrame:
             attributes = self.concat_statements(attr_format, attr_separator, key)
 
             query = self.rewrite(query, attribute_value=attributes, alias='', subquery=self.query)
-            return AFrame(self._dataverse, self._dataset, attributes, query, is_view=self._is_view, con=self._connector)
+            return AFrame(self._dataverse, self._dataset, key, query, is_view=self._is_view, con=self._connector)
 
     def __setitem__(self, key, value):
         dataset = self._dataverse + '.' + self._dataset
@@ -346,28 +346,26 @@ class AFrame:
 
     def join(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
 
-        join_types = {'inner': 'JOIN', 'left': 'LEFT OUTER JOIN'}
+        join_types = {'inner': 'q12', 'left': 'q13'}
         if isinstance(other, AFrame):
             if left_on is None or right_on is None:
                 raise ValueError('Missing join columns')
             if how not in join_types:
                 raise NotImplementedError('Join type specified is not yet available')
 
-            l_dataset = '(%s)' % self.query
-            r_dataset = '(%s)' % other.query
-            if other.query is not None:
-                r_dataset = '(%s)' % other.query
+            new_query = self.config_queries[join_types[how]]
+            new_query = self.rewrite(new_query, left_on=left_on, right_on=right_on, other=other._dataset, subquery=self.query, right_query=other.query.replace('\r\n',''))
 
-            if left_on != right_on:
-                query = 'SELECT VALUE object_merge(%s,%s) '% (lsuffix, rsuffix) + 'FROM %s %s ' %(l_dataset, lsuffix) +\
-                        join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
-            else:
-                query = 'SELECT %s.*,%s.* '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
-                        join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
-            schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
-                     ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
-
-            return AFrame(self._dataverse, self._dataset, schema, query, is_view=self._is_view, con=self._connector)
+            # if left_on != right_on:
+            #     query = 'SELECT VALUE object_merge(%s,%s) '% (lsuffix, rsuffix) + 'FROM %s %s ' %(l_dataset, lsuffix) +\
+            #             join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+            # else:
+            #     query = 'SELECT %s.*,%s.* '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
+            #             join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+            # schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
+            #          ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
+            return  AFrame(self._dataverse, self._dataset, self.schema, new_query, is_view=self._is_view, con=self._connector)
+            # return AFrame(self._dataverse, self._dataset, schema, query, is_view=self._is_view, con=self._connector)
 
     def groupby(self, by):
         return AFrameGroupBy(self._dataverse, self._dataset, self.query, self._config_queries, self._connector, by)
@@ -418,77 +416,56 @@ class AFrame:
         schema = new_query
         return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
 
-    def describe(self):
+    def describe(self, cols=None, query=False):
         num_cols = []
         str_cols = []
         numeric_types = ['int','int8','int16', 'int32', 'int64', 'double',
                          'integer', 'smallint', 'tinyint', 'bigint', 'float']
-        index = ['count', 'mean', 'std', 'min', 'max']
+        funcs = ['avg', 'stddev', 'min', 'max', 'count']
         data = []
-        dataset = self._dataverse + '.' + self._dataset
 
-        fields = ''
-        cols = self.columns
+
+        # by_lst = ','.join(self._by)
+        new_query = self._config_queries['q14']
+        attribute_format = self._config_queries['agg_value']
+        attr_separator = self._config_queries['attribute_separator']
+
+        if cols is None and self.schema:
+            if isinstance(self.schema,str):
+                separator = self.rewrite(attr_separator, left='', right='').strip()
+                cols = [col.strip() for col in self.schema.split(separator)]
+            elif isinstance(self.schema, list):
+                cols = self.schema
+
+        all_func_str = ''
         for col in cols:
-            if list(col.values())[0] in numeric_types:
-                key = list(col.keys())[0]
-                num_cols.append(key)
-                fields += 'count(t.%s) %s_count, ' \
-                    'min(t.%s) %s_min, ' \
-                    'max(t.%s) %s_max, ' \
-                    'avg(t.%s) %s_mean, ' % (key,key,key,key,key,key,key,key)
-            if list(col.values())[0] == 'string':
-                key = list(col.keys())[0]
-                str_cols.append(key)
-                fields += 'count(t.%s) %s_count, ' \
-                          'min(t.%s) %s_min, ' \
-                          'max(t.%s) %s_max, ' % (key, key, key, key, key, key)
+            for func in funcs:
+                func_format = self._config_queries[func]
+                func_alias = self.rewrite(attribute_format, func=func_format, agg_func=func, attribute=col)
+                if all_func_str == '':
+                    all_func_str = func_alias
+                else:
+                    left = all_func_str
+                    right = func_alias
+                    all_func_str = self.rewrite(attr_separator, left=left, right=right)
 
-        query = 'SELECT %s FROM %s AS t;' % (fields[:-2], dataset)
-        # contains min,max,cnt,avg results of all attributes
-        stats = self.send_request(query).iloc[0]
+        new_query = self.rewrite(new_query, agg_value=all_func_str, subquery=self.query)
 
-        std_query = 'SELECT '
-        sqr_query = '(SELECT '
-        for key in num_cols:
-            attr_std = 'sqrt(avg(square.%s)) AS %s_std,' % (key, key)
-            attr_sqr = 'power(%s - t.%s, 2) AS %s,' % (stats[key+'_mean'], key, key)
-            sqr_query += attr_sqr
-            std_query += attr_std
-        std_query = std_query
-        sqr_query = sqr_query
-        std_query += ' FROM '
-        std_query += sqr_query
-        std_query += ' FROM %s t) square;' % dataset
+        if query:
+            return new_query
+        else:
+            stats = self.send_request(new_query).iloc[0]
+            for func in funcs:
+                row_values = []
+                for col in cols:
+                    key = func+'_'+col
+                    row_values.append(stats[key])
+                data.append(row_values)
+            res = pd.DataFrame(data, index=funcs, columns=cols)
+            return res
 
-        # contains standard deviation results of all numeric attributes
-        stds = self.send_request(std_query).iloc[0]
 
-        all_cols = str_cols+num_cols
 
-        # iterate over each row and add both numeric and string values from the json result
-        for ind in index:
-            row_values = []
-            if ind != 'std':
-                for key in str_cols:
-                    if key+'_'+ind in stats:    # check for existing key (cannot get avg() of string attributes )
-                        value = stats[key+'_'+ind]  # e.g. stats[unique1_min]
-                        row_values.append(value)
-                    else:
-                        row_values.append(None)
-                for key in num_cols:
-                    value = stats[key + '_' + ind]
-                    row_values.append(value)
-            else:
-                for i in range(len(str_cols)):  # cannot get std() of string attributes
-                    row_values.append(None)
-                for key in num_cols:
-                    value = stds[key + '_' + ind]
-                    row_values.append(value)
-            data.append(row_values)
-
-        res = pd.DataFrame(data, index=index, columns=all_cols)
-        return res
 
     def rolling(self, window=None, on=None):
         if window is not None and not isinstance(window, Window):
