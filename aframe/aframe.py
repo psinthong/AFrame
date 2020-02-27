@@ -257,22 +257,35 @@ class AFrame:
             schema = field_str
         return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=schema, query=query, is_view=self._is_view, con=self._connector)
 
-    def isna(self):
-        query = 'SELECT VALUE t FROM (%s) AS t WHERE ' % self.query
-        schema = self.schema
-        if isinstance(self.schema, (np.ndarray, list)):
-            fields = self.schema
-            fields_str = ''
-            for field in fields:
-                fields_str += '%s IS UNKNOWN AND ' % field
-            fields_str = fields_str[:-4]
-            query = query + fields_str + ';'
-            schema = fields_str
-        if isinstance(self.schema, str):
-            field_str = '%s IS UNKNOWN' % self.schema
-            query = query + field_str + ';'
-            schema = field_str
-        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=schema, query=query, is_view=self._is_view, con=self._connector)
+    def isna(self, cols=None):
+        query = self._config_queries['q2']
+        comparison_statement = self.config_queries['isna']
+        col_alias = self.config_queries['attribute_value']
+        attr_separator = self.config_queries['attribute_separator']
+        logic_and = self.config_queries['and']
+
+        if cols is None:
+            if isinstance(self.schema, list):
+                fields = self.schema
+            else:
+                fields = [self.schema]
+        else:
+            fields = cols
+
+        attribute_vals = ''
+        comparison_statements = ''
+        for field in fields:
+            comparison = self.rewrite(comparison_statement, left=field)
+            alias = 'isna({})'.format(field)
+            statement = self.rewrite(col_alias, alias=alias, attribute=comparison)
+            if attribute_vals == '':
+                attribute_vals = statement
+                comparison_statements = comparison
+            else:
+                attribute_vals = self.rewrite(attr_separator, left=attribute_vals, right=statement)
+                comparison_statements = self.rewrite(logic_and, left=comparison_statements, right=comparison)
+        new_query = self.rewrite(query, subquery=self.query, attribute_value=attribute_vals)
+        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=comparison_statements, query=new_query, is_view=self._is_view, con=self._connector)
 
     def isnull(self):
         return self.isna()
@@ -344,7 +357,7 @@ class AFrame:
             else:
                 self._columns.append(column)
 
-    def join(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
+    def merge(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
 
         join_types = {'inner': 'q12', 'left': 'q13'}
         if isinstance(other, AFrame):
