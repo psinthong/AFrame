@@ -110,12 +110,15 @@ class AFrame:
             return AFrame(self._dataverse, self._dataset, key, query, is_view=self._is_view, con=self._connector)
 
     def __setitem__(self, key, value):
-        dataset = self._dataverse + '.' + self._dataset
+
         if not isinstance(key, str):
             raise ValueError('Must provide a string name for the appended column.')
         # if isinstance(value, OrderedAFrame):
         #     new_query = 'SELECT t.*, %s %s FROM %s t;' % (value._columns, key, dataset)
         #     self.query = new_query
+        if not isinstance(value, AFrame):
+            raise ValueError('Must provide an AFrame object as a value')
+
         new_query = self.config_queries['q9']
         new_field_format = self.config_queries['attribute_value']
         new_field_format = self.rewrite(new_field_format, attribute=value.schema, alias=key)
@@ -173,7 +176,9 @@ class AFrame:
     def toPandas(self, sample: int = 0):
         if sample > 0:
             return self.head(sample)
-        result = self.send_request(self.query)
+        query = self.config_queries['return_all']
+        query = self.rewrite(query, subquery=self.query)
+        result = self.send_request(query)
         if '_uuid' in result.columns:
             result.drop('_uuid', axis=1, inplace=True)
         return result
@@ -241,42 +246,43 @@ class AFrame:
         schema = col.schema
         return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
 
-    def notna(self):
-        query = 'SELECT VALUE t FROM (%s) AS t WHERE ' % self.query
-        if isinstance(self.schema, (np.ndarray, list)):
-            fields = self.schema
-            fields_str = ''
-            for field in fields:
-                fields_str += '%s IS KNOWN AND ' % field
-            fields_str = fields_str[:-4]
-            query = query + fields_str + ';'
-            schema = fields_str
-        if isinstance(self.schema, str):
-            field_str = '%s IS KNOWN' % self.schema
-            query = query + field_str + ';'
-            schema = field_str
-        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=schema, query=query, is_view=self._is_view, con=self._connector)
+    def notna(self, cols=None):
+        comparison_statement = self.config_queries['notna']
+        return_col_alias = 'notna'
+        comparison_statements, new_query = self.check_na(cols, comparison_statement, return_col_alias)
+        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=comparison_statements, query=new_query,
+                      is_view=self._is_view, con=self._connector)
 
     def isna(self, cols=None):
-        query = self._config_queries['q2']
         comparison_statement = self.config_queries['isna']
+        return_col_alias = 'isna'
+        comparison_statements, new_query = self.check_na(cols, comparison_statement, return_col_alias)
+        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=comparison_statements, query=new_query, is_view=self._is_view, con=self._connector)
+
+    def check_na(self, cols, comparison_statement, return_col_alias):
+        query = self._config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         attr_separator = self.config_queries['attribute_separator']
         logic_and = self.config_queries['and']
-
         if cols is None:
             if isinstance(self.schema, list):
                 fields = self.schema
-            else:
+            elif isinstance(self.schema, str):
                 fields = [self.schema]
+            else:
+                raise ValueError('Must provide either field(s) to check or pre-select the field(s)')
         else:
-            fields = cols
-
+            if isinstance(cols, list):
+                fields = cols
+            else:
+                fields = [cols]
         attribute_vals = ''
         comparison_statements = ''
         for field in fields:
-            comparison = self.rewrite(comparison_statement, left=field)
-            alias = 'isna({})'.format(field)
+            single_attribute = self.config_queries['single_attribute']
+            format_field = self.rewrite(single_attribute, attribute=field)
+            comparison = self.rewrite(comparison_statement, left=format_field)
+            alias = '{}({})'.format(return_col_alias, field)
             statement = self.rewrite(col_alias, alias=alias, attribute=comparison)
             if attribute_vals == '':
                 attribute_vals = statement
@@ -285,13 +291,68 @@ class AFrame:
                 attribute_vals = self.rewrite(attr_separator, left=attribute_vals, right=statement)
                 comparison_statements = self.rewrite(logic_and, left=comparison_statements, right=comparison)
         new_query = self.rewrite(query, subquery=self.query, attribute_value=attribute_vals)
-        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=comparison_statements, query=new_query, is_view=self._is_view, con=self._connector)
+        return comparison_statements, new_query
 
     def isnull(self):
         return self.isna()
 
     def notnull(self):
         return self.notna()
+
+    def dropna(self, cols=None, axis=1):
+        if axis != 1:
+            raise ValueError("Currently only support droping columns")
+        return self[self.notna(cols=cols)]
+
+    def fillna(self, values, cols=None):
+        query = self.config_queries['q2']
+        col_alias = self.config_queries['attribute_value']
+        attr_separator = self.config_queries['attribute_separator']
+        fillna_field_format = self.config_queries['fillna']
+        str_format = self.config_queries['str_format']
+        single_attribute = self.config_queries['single_attribute']
+        attribute_vals = ''
+        new_schema =[]
+        if isinstance(values, dict):
+            for key in values.keys():
+                value = values[key]
+                if isinstance(value,str):
+                    value = self.rewrite(str_format, value=value)
+                formatted_key = self.rewrite(single_attribute, attribute=key)
+                fillna_field = self.rewrite(fillna_field_format, attribute=formatted_key, value=value)
+                col_statement = self.rewrite(col_alias, attribute=fillna_field, alias=key)
+                new_schema.append(col_statement)
+                if attribute_vals == '':
+                    attribute_vals = col_statement
+                else:
+                    attribute_vals = self.rewrite(attr_separator, left=attribute_vals, right=col_statement)
+        else:
+            if cols is None:
+                if isinstance(self.schema, list):
+                    fields = self.schema
+                elif isinstance(self.schema, str):
+                    fields = [self.schema]
+                else:
+                    raise ValueError('Must provide either field(s) to check or pre-select the field(s)')
+            else:
+                if isinstance(cols, list):
+                    fields = cols
+                else:
+                    fields = [cols]
+            value = values
+            if isinstance(value, str):
+                value = self.rewrite(str_format, value=value)
+            for key in fields:
+                formatted_key = self.rewrite(single_attribute, attribute=key)
+                fillna_field = self.rewrite(fillna_field_format, attribute=formatted_key, value=value)
+                col_statement = self.rewrite(col_alias, attribute=fillna_field, alias=key)
+                new_schema.append(col_statement)
+                if attribute_vals == '':
+                    attribute_vals = col_statement
+                else:
+                    attribute_vals = self.rewrite(attr_separator, left=attribute_vals, right=col_statement)
+        new_query = self.rewrite(query, attribute_value=attribute_vals, subquery=self.query)
+        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=new_schema, query=new_query, is_view=self._is_view, con=self._connector)
 
     @staticmethod
     def get_column_count(other):
@@ -357,28 +418,26 @@ class AFrame:
             else:
                 self._columns.append(column)
 
-    def merge(self, other, left_on, right_on, how='inner', lsuffix='l', rsuffix='r'):
-
-        join_types = {'inner': 'q12', 'left': 'q13'}
+    def merge(self, other, left_on=None, right_on=None, how='inner', l_alias='l', r_alias='r', hint=None):
+        join_types = {'inner': 'q12', 'left': 'q13', 'inner_hint': 'q12_hint', 'left_hint': 'q13_hint'}
         if isinstance(other, AFrame):
-            if left_on is None or right_on is None:
-                raise ValueError('Missing join columns')
+            # if (left_on is None or right_on is None) and (hint is None):
+            #     raise ValueError('Missing join columns')
             if how not in join_types:
                 raise NotImplementedError('Join type specified is not yet available')
 
-            new_query = self.config_queries[join_types[how]]
-            new_query = self.rewrite(new_query, left_on=left_on, right_on=right_on, other=other._dataset, subquery=self.query, right_query=other.query.replace('\r\n',''))
-
-            # if left_on != right_on:
-            #     query = 'SELECT VALUE object_merge(%s,%s) '% (lsuffix, rsuffix) + 'FROM %s %s ' %(l_dataset, lsuffix) +\
-            #             join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' %(r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
-            # else:
-            #     query = 'SELECT %s.*,%s.* '% (lsuffix, rsuffix) + 'from %s %s ' % (l_dataset, lsuffix) +\
-            #             join_types[how] + ' %s %s on %s.%s /*+ indexnl */ = %s.%s;' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
-            # schema = '%s %s ' % (l_dataset, lsuffix) + join_types[how] + \
-            #          ' %s %s on %s.%s=%s.%s' % (r_dataset, rsuffix, lsuffix, left_on, rsuffix, right_on)
-            return  AFrame(self._dataverse, self._dataset, self.schema, new_query, is_view=self._is_view, con=self._connector)
-            # return AFrame(self._dataverse, self._dataset, schema, query, is_view=self._is_view, con=self._connector)
+            if hint is not None:
+                how = how+'_hint'
+                left_on = left_on if left_on else ''
+                right_on = right_on if right_on else ''
+                new_query = self.config_queries[join_types[how]]
+                new_query = self.rewrite(new_query, left_on=left_on, right_on=right_on, other=other._dataset, subquery=self.query,
+                                         r_alias=r_alias, l_alias=l_alias, right_query=other.query.replace('\r\n',''), hint=hint)
+            else:
+                new_query = self.config_queries[join_types[how]]
+                new_query = self.rewrite(new_query, left_on=left_on, right_on=right_on, other=other._dataset, subquery=self.query,
+                                         r_alias=r_alias, l_alias=l_alias, right_query=other.query.replace('\r\n', ''))
+            return AFrame(self._dataverse, self._dataset, self.schema, new_query, is_view=self._is_view, con=self._connector)
 
     def groupby(self, by):
         return AFrameGroupBy(self._dataverse, self._dataset, self.query, self._config_queries, self._connector, by)
@@ -463,6 +522,8 @@ class AFrame:
                     all_func_str = self.rewrite(attr_separator, left=left, right=right)
 
         new_query = self.rewrite(new_query, agg_value=all_func_str, subquery=self.query)
+        return_all = self._config_queries['return_all']
+        new_query = self.rewrite(return_all, subquery=new_query)
 
         if query:
             return new_query
@@ -549,7 +610,7 @@ class AFrame:
         new_query = self.rewrite(new_query, attribute_remove=remove_list, subquery=self.query)
         return AFrame(self._dataverse, self._dataset, self.schema, new_query, con=self._connector)
 
-    def astype(self, type, columns=None, inplace=False):
+    def astype(self, type_name, columns=None):
         new_type_cols = ''
         if not columns:
             if isinstance(self.schema, list):
@@ -559,38 +620,30 @@ class AFrame:
         for col in columns:
                 escape_chars = self.config_queries['escape']
                 format_col = re.sub(escape_chars, '', str(col))
-                if type == 'int32':
-                    new_type = self.config_queries['to_int32']
-                    new_type = self.rewrite(new_type, statement=col)
-                    cast_type_format = self.config_queries['to_int32_field']
-                    cast_type_format = self.rewrite(cast_type_format, attribute=format_col)
-                # new_type_cols.append(new_type)
+                single_attribute = self.config_queries['single_attribute']
+                attr = self.rewrite(single_attribute, attribute=format_col)
+               #cast to specified type
+                new_type = self.config_queries['to_'+type_name]
+                new_type = self.rewrite(new_type, statement=col)
+                cast_type_format = self.config_queries['to_{}_field'.format(type_name)]
+                cast_type_format = self.rewrite(cast_type_format, attribute=attr)
+
                 attr_format = self.config_queries['attribute_value']
                 attr_format = self.rewrite(attr_format, attribute=cast_type_format, alias=format_col)
-                attr_separator = self._config_queries['attribute_separator']
 
-                if new_type_cols == '':
-                    new_type_cols = attr_format
-                else:
-                    left=new_type_cols
-                    right = attr_format
-                    new_type_cols = AFrame.rewrite(attr_separator, left=left, right=right)
-
-            # query = self.config_queries['q2']
-
-        # attributes = self.concat_statements(attr_format, attr_separator, new_type_cols)
-
-        # new_type_alias = re.sub(escape_chars, '', str(new_type))
-        # attr_value = self.config_queries['attribute_value']
-        # atttr_value = self.rewrite(attr_value, attribute=new_type, alias=new_type_alias)
+                new_type_cols = attr_format
 
         new_query = self.config_queries['q2']
         new_query = self.rewrite(new_query, attribute_value=new_type_cols, subquery=self.query)
         return AFrame(self._dataverse, self._dataset, new_type, new_query, is_view=self._is_view, con=self._connector)
 
     def unique(self, sample=0, query=False):
+        unique_key = self.schema
+        single_attr_format = self.config_queries['single_attribute']
+        single_attr_format = self.rewrite(single_attr_format, attribute=unique_key)
+
         new_query = self.config_queries['q10']
-        new_query = self.rewrite(new_query, attribute=self.schema, subquery=self.query)
+        new_query = self.rewrite(new_query, attribute=single_attr_format, subquery=self.query)
         if sample > 0:
             new_query = self.config_queries['limit']
             new_query = self.rewrite(new_query, num=sample, subquery=self.query)
@@ -619,26 +672,6 @@ class AFrame:
                     added_schema = tmp_af.schema.split(',')[-1]
                 added_cols.append(added_schema)
             tmp_af = tmp_af.drop(encoded_col)
-            # new_af = tmp_af.astype('int32', columns=cols)
-            # if columns is None:
-            #     cols = af.unique()
-            #     conditions, schemas = AFrame.get_conditions(af, cols)
-            #     query = 'SELECT %s FROM (%s) t;' % (conditions, af.query)
-            #     return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
-            # else:
-            #     if isinstance(columns,list):
-            #         conditions = ""
-            #         schemas = ""
-            #         for col in columns:
-            #             cols = af[col].unique()
-            #             cons_i, schemas_i = AFrame.get_conditions(af, cols, str(col))
-            #             conditions += cons_i+','
-            #             schemas += schemas_i+','
-            #         conditions = conditions[:-1]
-            #         schemas = schemas[:-1]
-            #         query = 'SELECT t.*, %s FROM (%s) t;' % (conditions, af.query)
-            #         return AFrame(af._dataverse, af._dataset, schemas, query, is_view=af._is_view, con=af._connector)
-
         else:
             raise ValueError("must be an AFrame object")
 
@@ -856,8 +889,11 @@ class AFrame:
 
     def arithmetic_op(self, value, op):
         # new_query = 'SELECT VALUE t %s %s FROM (%s) t;' % (op, str(value), self.query)
+        single_attr_format = self.config_queries['single_attribute']
+        single_attr_format = self.rewrite(single_attr_format, attribute=self.schema)
+
         arithmetic_statement = self.config_queries[op]
-        condition = AFrame.rewrite(arithmetic_statement, left=self.schema, right=str(value))
+        condition = AFrame.rewrite(arithmetic_statement, left=single_attr_format, right=str(value))
         new_query = self.config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         new_query = self.rewrite(new_query, attribute_value=col_alias)
@@ -906,10 +942,13 @@ class AFrame:
     def binary_opt(self, other, opt):
         comparison_statement = self.config_queries[opt]
 
+        single_attr_format = self.config_queries['single_attribute']
+        single_attr_format = self.rewrite(single_attr_format, attribute=self.schema)
+
         if type(other) == str:
-            comparison = AFrame.rewrite(comparison_statement, left=self.schema, right="'"+other+"'")
+            comparison = AFrame.rewrite(comparison_statement, left=single_attr_format, right='"'+other+'"')
         else:
-            comparison = AFrame.rewrite(comparison_statement, left=self.schema, right=str(other))
+            comparison = AFrame.rewrite(comparison_statement, left=single_attr_format, right=str(other))
         # query = 'SELECT VALUE %s FROM (%s) t;' %(selection, self.query)
 
         query = self.config_queries['q2']
@@ -966,28 +1005,43 @@ class AFrame:
         new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query)
         return AFrame(self._dataverse, self._dataset, schema, new_query, None, con=self._connector)
 
-    def persist(self, name=None, dataverse=None, is_view=False):
-        if name is None:
-            raise ValueError('Need to provide a name for the new dataset.')
+    def to_collection(self, name, query=False):
+        # create_query = self.config_queries['to_collection']
+        # create_query = self.rewrite(create_query, namespace=self._dataverse, collection=name, subquery=self.query)
+        if query:
+            return self._connector.to_collection(self.query, self._dataverse, self._dataset, name, True)
+        new_con = self._connector.to_collection(self.query, self._dataverse, self._dataset, name)
+        return AFrame(dataverse=self._dataverse, dataset=name, con=new_con)
 
-        if is_view:
-            function_name = '%s.%s' %(dataverse, name)
-            function_query = 'CREATE FUNCTION %s(){%s};' % (function_name, self.query)
-            self.send(function_query)
-            new_q = 'SELECT VALUE t FROM (%s()) t;' % function_name
-            return AFrame(dataverse=dataverse, dataset=name, query=new_q, is_view=True, con=self._connector)
-        else:
-            self.create_tmp_dataverse(dataverse)
-            if dataverse:
-                new_q = 'create dataset %s.%s(TempType) primary key _uuid autogenerated;' % (dataverse, name)
-                new_q += '\n insert into %s.%s select value ((%s));' % (dataverse, name, self.query)
-                self.send(new_q)
-                return AFrame(dataverse, name, con=self._connector)
-            else:
-                new_q = 'create dataset _Temp.%s(TempType) primary key _uuid autogenerated;' % name
-                new_q += '\n insert into _Temp.%s select value ((%s));' % (name, self.query)
-                self.send(new_q)
-                return AFrame('_Temp', name, con=self._connector)
+    def to_view(self, name, query=False):
+        # create_query = self.config_queries['to_view']
+        # create_query = self.rewrite(create_query, namespace=self._dataverse, collection=name, subquery=self.query)
+        if query:
+            return self._connector.to_view(self.query, self._dataverse, self._dataset, name, True)
+        # new_con = self._connector.to_view(create_query)
+        new_query = self.config_queries['q15']
+        new_query = self.rewrite(new_query, namespace=self._dataverse, view=name)
+        new_con = self._connector.to_view(self.query, self._dataverse, self._dataset, name)
+        return AFrame(dataverse=self._dataverse, dataset=name, query=new_query, con=new_con, is_view=True)
+        #
+        # if is_view:
+        #     function_name = '%s.%s' %(dataverse, name)
+        #     function_query = 'CREATE FUNCTION %s(){%s};' % (function_name, self.query)
+        #     self.send(function_query)
+        #     new_q = 'SELECT VALUE t FROM (%s()) t;' % function_name
+        #     return AFrame(dataverse=dataverse, dataset=name, query=new_q, is_view=True, con=self._connector)
+        # else:
+        #     self.create_tmp_dataverse(dataverse)
+        #     if dataverse:
+        #         new_q = 'create dataset %s.%s(TempType) primary key _uuid autogenerated;' % (dataverse, name)
+        #         new_q += '\n insert into %s.%s select value ((%s));' % (dataverse, name, self.query)
+        #         self.send(new_q)
+        #         return AFrame(dataverse, name, con=self._connector)
+        #     else:
+        #         new_q = 'create dataset _Temp.%s(TempType) primary key _uuid autogenerated;' % name
+        #         new_q += '\n insert into _Temp.%s select value ((%s));' % (name, self.query)
+        #         self.send(new_q)
+        #         return AFrame('_Temp', name, con=self._connector)
 
     def get_dataType(self):
         query = 'select value t. DatatypeName from Metadata.`Dataset` t where' \
@@ -1025,22 +1079,17 @@ class AFrame:
             result = json.loads(handler.read())
             return result['status']
 
-    @staticmethod
-    def drop_dataset(af=None, dataverse=None, dataset=None):
-        if isinstance(af, AFrame):
-            if af._is_view:
-                query = 'DROP FUNCTION %s.%s@0;' % (af._dataverse, af._dataset)
-            else:
-                query = 'DROP DATASET %s.%s;' % (af._dataverse, af._dataset)
-            result = af.send(query)
-            return result
-        if (dataverse is not None) and (dataset is not None):
-            if af._is_view:
-                query = 'DROP FUNCTION %s.%s@0;' % (af._dataverse, af._dataset)
-            else:
-                query = 'DROP DATASET %s.%s;' % (dataverse, dataset)
-            result = af.send(query)
-            return result
+    def drop_dataset(self):
+        if self._is_view:
+            return self._connector.drop_view(namespace=self._dataverse, collection=self._dataset)
+        else:
+            return self._connector.drop_collection(namespace=self._dataverse, collection=self._dataset)
+
+    def drop_collection(self):
+        return self._connector.drop_collection(namespace=self._dataverse, collection=self._dataset)
+
+    def drop_view(self):
+        return self._connector.drop_view(namespace=self._dataverse, collection=self._dataset)
 
 
 class NestedAFrame(AFrame):

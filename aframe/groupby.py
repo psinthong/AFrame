@@ -50,7 +50,10 @@ class AFrameGroupBy:
 
     def get_group(self, key, query=False):
         new_query = self._config_queries['q3']
+        single_attr_format = self._config_queries['single_attribute']
+        by_lst = [af.AFrame.rewrite(single_attr_format, attribute=i) for i in self._by]
         key_lst = []
+
         if isinstance(key, (list, tuple)):
             key_lst = [k for k in key]
         else:
@@ -61,11 +64,13 @@ class AFrameGroupBy:
             if isinstance(k, str):
                 k = '"{}"'.format(k)
             eq = self._config_queries['eq']
-            key_lst[i] = af.AFrame.rewrite(eq, left=str(self._by[i]), right=str(k))
+            key_lst[i] = af.AFrame.rewrite(eq, left=str(by_lst[i]), right=str(k))
 
         condition = self.get_group_condition(key_lst)
 
         new_query = af.AFrame.rewrite(new_query, subquery=self._base_query, statement=condition)
+        return_all = self._config_queries['return_all']
+        new_query = af.AFrame.rewrite(return_all, subquery=new_query)
 
         if query:
             return new_query
@@ -106,12 +111,15 @@ class AFrameGroupBy:
 
         grp_attr_format = self._config_queries['grp_by_attribute']
         attr_separator = self._config_queries['attribute_separator']
+
         grp_attributes = af.AFrame.concat_statements(grp_attr_format, attr_separator, self._by)
 
         agg_val_str = self.get_agg_str(agg_statement, attr_separator, func)
         grp_val_str = af.AFrame.concat_statements(grp_statement, attr_separator, self._by)
 
         agg_query = af.AFrame.rewrite(agg_query, subquery=self._base_query, grp_by_attribute=grp_attributes, agg_value=agg_val_str, grp_value=grp_val_str)
+        return_all = self._config_queries['return_all']
+        agg_query = af.AFrame.rewrite(return_all, subquery=agg_query)
 
         if query:
             return agg_query
@@ -125,7 +133,7 @@ class AFrameGroupBy:
 
     def get_agg_str(self, agg_statement, attr_separator, func):
         agg_values = []
-        functions = ['count', 'min', 'max', 'avg', 'sum', 'stddev_samp', 'stddev_pop', 'var_samp', 'var_pop']
+        functions = ['count', 'min', 'max', 'mean', 'sum', 'stddev_samp', 'stddev_pop', 'var_samp', 'var_pop']
         for key in func.keys():
             attr_func_lst = []
             if isinstance(func[key], str):
@@ -134,6 +142,8 @@ class AFrameGroupBy:
                 attr_func_lst = func[key]
             for func_val in attr_func_lst:
                 if str(func_val).lower() in functions:
+                    if str(func_val) == 'mean':
+                        func_val = 'avg'
                     func_format = self._config_queries[func_val]
                     agg_func_format = af.AFrame.rewrite(agg_statement, func=func_format)
                     agg_values.append(af.AFrame.rewrite(agg_func_format, agg_func=func_val, attribute=key))
