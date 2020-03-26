@@ -29,8 +29,11 @@ class Connector:
                 queries[key] = value.replace('\n', '\r\n')
         return queries
 
-    def get_collection(self, **kwargs):
-        pass
+    def get_collection(self, dataverse, dataset):
+        return None
+
+    def get_view(self, dataverse, dataset):
+        return None
 
     def to_collection(self, subquery, namespace, collection, name, query=False):
         return Connector
@@ -114,6 +117,9 @@ class AsterixConnector(Connector):
         drop_query = 'DROP FUNCTION {}.{}@0;'.format(namespace, collection)
         return self.submit(drop_query)
 
+    def get_view(self, dataverse, dataset):
+        return '{}.{}();'.format(dataverse, dataset)
+
 
 class SQLConnector(Connector):
 
@@ -158,6 +164,7 @@ class MongoConnector(Connector):
         from pymongo.collection import Collection
         if not isinstance(self._db, Collection):
             self._db = self._db[dataverse][dataset]
+        return None
 
     def to_collection(self, subquery, namespace, collection, name, query=False):
         new_query = '$subquery,\r\n{ "$out": "$name" }'
@@ -193,6 +200,9 @@ class CypherConnector(Connector):
     def __init__(self, uri='http://localhost:7474', config_file_path="cypher.ini", username=None, password=None):
         Connector.__init__(self, uri, config_file_path)
         self._db = self.connect(username=username,password=password)
+        self._uri = uri
+        self._username = username
+        self._password = password
 
     def connect(self, username, password):
         from py2neo import Graph
@@ -208,3 +218,20 @@ class CypherConnector(Connector):
             else:
                 df = pd.DataFrame(results['t'])
             return df
+
+    def get_view(self, dataverse, dataset):
+        query = 'MATCH (n:_View) WHERE n.namespace="{}" AND n.collection="{}" RETURN n.query AS n'.format(dataverse, dataset)
+        original_q = self._db.run(query).to_data_frame()['n'][0]
+        return original_q
+
+    def to_view(self, subquery, namespace, collection, name, query=False):
+        to_view_q = 'CREATE (n:_View { `namespace`: "'+namespace+'", collection: "'+name+'", query:"'+subquery+'"})'
+        if query:
+            return to_view_q
+        self._db.run(to_view_q)
+        return CypherConnector(uri=self._uri, username=self._username, password=self._password)
+
+    def drop_view(self, namespace, collection):
+        query = 'MATCH (n:_View) WHERE n.namespace = "{}" AND n.collection = "{}" DELETE n'.format(namespace, collection)
+        self._db.run(query)
+        return 'success'

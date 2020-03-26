@@ -28,12 +28,12 @@ class AFrame:
         self._connector = con
 
         # initialize
-        con.get_collection(dataverse=dataverse,dataset=dataset)
         self._config_queries = con.get_config_queries()
+
         if not is_view and isinstance(con, AsterixConnector):
             self.get_dataset(dataverse=dataverse,dataset=dataset)
 
-        if query is not None:
+        if query is not None and query != '':
             self.query = query
         else:
             self.query = self.get_initial_query()
@@ -50,10 +50,11 @@ class AFrame:
         return self._config_queries
 
     def get_initial_query(self):
-        dataset = self._dataverse + '.' + self._dataset
         if self._is_view:
-            return '{}();'.format(dataset)
+            # return '{}();'.format(dataset)
+            return self._connector.get_view(dataverse=self._dataverse, dataset=self._dataset)
         else:
+            self._connector.get_collection(dataverse=self._dataverse, dataset=self._dataset)
             init_query = self.config_queries['q1']
             init_query = AFrame.rewrite(query=init_query, namespace=self._dataverse, collection=self._dataset)
             return init_query
@@ -182,7 +183,6 @@ class AFrame:
         if '_uuid' in result.columns:
             result.drop('_uuid', axis=1, inplace=True)
         return result
-
 
     def collect(self):
         results = self.send_request(self.query)
@@ -354,6 +354,135 @@ class AFrame:
         new_query = self.rewrite(query, attribute_value=attribute_vals, subquery=self.query)
         return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=new_schema, query=new_query, is_view=self._is_view, con=self._connector)
 
+    def rename(self, mapper, axis='columns'):
+        if axis != 'columns':
+            raise ValueError('Only support renaming columns')
+        tmp = copy.copy(self)
+        if isinstance(mapper, dict):
+            for key in mapper.keys():
+                old_val = key
+                new_val = mapper[key]
+
+                new_query = self.config_queries['q9']
+                new_field_format = self.config_queries['attribute_value']
+                single_attr = self.config_queries['single_attribute']
+                new_field_format = self.rewrite(new_field_format, attribute=single_attr)
+                new_field_format = self.rewrite(new_field_format, attribute=old_val, alias=new_val)
+                new_query = self.rewrite(new_query, attribute_value=new_field_format, subquery=tmp.query)
+
+                if tmp._schema is not None:
+                    if isinstance(tmp._schema, list):
+                        tmp._schema.append(new_field_format)
+                    elif isinstance(tmp._schema, str):
+                        tmp._schema = [tmp._schema]
+                        tmp._schema.append(new_field_format)
+                else:
+                    tmp._schema = [new_field_format]
+                tmp.query = new_query
+                tmp = tmp.drop(old_val)
+
+            return tmp
+        else:
+            raise ValueError('mapper must be a dictionary')
+
+    def replace(self, to_replace, value=None, columns=None):
+        new_query = self.config_queries['q2']
+        col_alias = self.config_queries['attribute_value']
+        attr_separator = self.config_queries['attribute_separator']
+        replace_field_format = self.config_queries['replace']
+        str_format = self.config_queries['str_format']
+        single_attribute = self.config_queries['single_attribute']
+        eq = self.config_queries['eq']
+        tmp_query=self.query
+        new_schema = []
+        if columns is not None or self._schema is not None:
+            if columns is not None:
+                if not isinstance(columns, list):
+                    columns = [columns]
+            if self._schema is not None:
+                if not isinstance(self.schema, list):
+                    columns = [self.schema]
+                else:
+                    columns = self.schema
+            attributes = ''
+            if value is not None:
+                # df.replace(0, 5)
+                if isinstance(value, str):
+                    value = self.rewrite(str_format, value=value)
+                to_replace_dict = {to_replace: value}
+            else:
+                if isinstance(to_replace, dict):
+                    to_replace_dict = to_replace
+                else:
+                    raise ValueError('Must provide a dictionary for column and values to replace')
+                # df.replace({0: 10, 1: 100})
+            for to_replace_key in to_replace_dict.keys():
+                replace_val = to_replace_dict[to_replace_key]
+                for col in columns:
+                    formatted_key = self.rewrite(single_attribute, attribute=col)
+                    eq_statement = self.rewrite(eq, left=formatted_key, right=str(to_replace_key))
+                    replace_field = self.rewrite(replace_field_format, statement=eq_statement, attribute=formatted_key,
+                                                 to_replace=str(replace_val), value='TRUE')
+                    col_statement = self.rewrite(col_alias, attribute=replace_field, alias=col)
+                    new_schema.append(col_statement)
+                    tmp_query = self.rewrite(new_query, attribute_value=col_statement, subquery=tmp_query)
+        else:
+            attributes = ''
+            if value is not None:
+                if isinstance(value, str):
+                    value = self.rewrite(str_format, value=value)
+                if isinstance(to_replace, dict):
+                    for to_replace_key in to_replace.keys():
+                        replace_val = to_replace[to_replace_key]
+                        if isinstance(replace_val,str):
+                            replace_val = self.rewrite(str_format, value=replace_val)
+
+                        formatted_key = self.rewrite(single_attribute, attribute=to_replace_key)
+                        eq_statement = self.rewrite(eq, left=formatted_key, right=str(replace_val))
+                        replace_field = self.rewrite(replace_field_format, statement=eq_statement,
+                                                     attribute=formatted_key,
+                                                     to_replace=str(value), value='TRUE')
+                        col_statement = self.rewrite(col_alias, attribute=replace_field, alias=to_replace_key)
+                        new_schema.append(col_statement)
+                        if attributes == '':
+                            attributes = col_statement
+                        else:
+                            attributes = self.rewrite(attr_separator, left=attributes, right=col_statement)
+                    tmp_query = self.rewrite(new_query, attribute_value=attributes, subquery=tmp_query)
+                else:
+                    raise ValueError('Must provide a dictionary for column and values to replace')
+                # df.replace({'A': 0, 'B': 5}, 100)
+            else:
+                if isinstance(to_replace, dict):
+                    for to_replace_key in to_replace.keys():
+                        replace_dict = to_replace[to_replace_key]
+                        if isinstance(replace_dict, dict):
+                            for condition_key in replace_dict.keys():
+                                replace_val = replace_dict[condition_key]
+                                if isinstance(condition_key, str):
+                                    condition_key = self.rewrite(str_format, value=condition_key)
+                                    if isinstance(condition_key, str):
+                                        condition_key = self.rewrite(str_format, value=condition_key)
+                                if isinstance(replace_val, str):
+                                    replace_val = self.rewrite(str_format, value=str(replace_val))
+                                formatted_key = self.rewrite(single_attribute, attribute=to_replace_key)
+                                eq_statement = self.rewrite(eq, left=formatted_key, right=str(condition_key))
+                                replace_field = self.rewrite(replace_field_format, statement=eq_statement,
+                                                             attribute=formatted_key,
+                                                             to_replace=str(replace_val), value='TRUE')
+                                col_statement = self.rewrite(col_alias, attribute=replace_field, alias=str(to_replace_key))
+                                new_schema.append(col_statement)
+                                tmp_query = self.rewrite(new_query, attribute_value=col_statement, subquery=tmp_query)
+                        else:
+                            raise ValueError('Must provide a dictionary for condition and value to be replaced')
+
+                else:
+                    raise ValueError('Must provide a dictionary for key and values to be replaced')
+                # df.replace({'A': {0: 100, 4: 400}})
+        new_af = AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=self.schema, query=tmp_query, is_view=self._is_view, con=self._connector)
+
+        return new_af
+
     @staticmethod
     def get_column_count(other):
         if not isinstance(other, AFrame):
@@ -489,15 +618,9 @@ class AFrame:
         return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
 
     def describe(self, cols=None, query=False):
-        num_cols = []
-        str_cols = []
-        numeric_types = ['int','int8','int16', 'int32', 'int64', 'double',
-                         'integer', 'smallint', 'tinyint', 'bigint', 'float']
         funcs = ['avg', 'stddev', 'min', 'max', 'count']
         data = []
 
-
-        # by_lst = ','.join(self._by)
         new_query = self._config_queries['q14']
         attribute_format = self._config_queries['agg_value']
         attr_separator = self._config_queries['attribute_separator']
@@ -537,9 +660,6 @@ class AFrame:
                 data.append(row_values)
             res = pd.DataFrame(data, index=funcs, columns=cols)
             return res
-
-
-
 
     def rolling(self, window=None, on=None):
         if window is not None and not isinstance(window, Window):
@@ -917,6 +1037,8 @@ class AFrame:
         return self.agg_function('count')
 
     def agg_function(self, func):
+        if self.schema is None:
+            raise ValueError('Require to select at least one attribute')
         new_query = 'SELECT VALUE %s(t) FROM (%s) t;' % (func, self.query)
         result = self.send_request(new_query)
         return result.iloc[0]
@@ -1048,22 +1170,6 @@ class AFrame:
                 ' t.DataverseName = \"%s\" and t.DatasetName = \"%s\"' % (self._dataverse, self._dataset)
         result = self.send_request(query)
         return result[0]
-
-    def get_primary_key(self):
-        query = 'select value p from Metadata.`Dataset` t unnest t.InternalDetails.PrimaryKey p ' \
-                'where t.DatasetName = \"%s\" and t.DataverseName=\"%s\" ;' %(self._dataset, self._dataverse)
-        keys = self.send_request(query)
-        return keys[0][0]
-
-    def create_tmp_dataverse(self,name=None):
-        if name:
-            query = 'create dataverse %s if not exists; ' \
-                    '\n create type %s.TempType if not exists as open{ _uuid: uuid};' % (name, name)
-        else:
-            query = 'create dataverse _Temp if not exists; ' \
-                '\n create type _Temp.TempType if not exists as open{ _uuid: uuid};'
-        result = self.send(query)
-        return result
 
         #-------------migrate AFrameObj methods
 
