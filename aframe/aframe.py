@@ -386,6 +386,7 @@ class AFrame:
             raise ValueError('mapper must be a dictionary')
 
     def replace(self, to_replace, value=None, columns=None):
+        from builtins import zip
         new_query = self.config_queries['q9']
         col_alias = self.config_queries['attribute_value']
         attr_separator = self.config_queries['attribute_separator']
@@ -405,7 +406,6 @@ class AFrame:
                     columns = [self.schema]
                 else:
                     columns = self.schema
-            attributes = ''
             if value is not None:
                 # df.replace(0, 5)
                 if isinstance(value, str):
@@ -417,13 +417,15 @@ class AFrame:
                 else:
                     raise ValueError('Must provide a dictionary for column and values to replace')
                 # df.replace({0: 10, 1: 100})
+            keys = to_replace_dict.keys()
+            values = to_replace_dict.values()
+            if set(keys) & set(values):
+                raise ValueError("Replacement not allowed with overlapping keys and values")
             for to_replace_key in to_replace_dict.keys():
                 replace_val = to_replace_dict[to_replace_key]
                 for col in columns:
                     drop_attrs.append(col)
                     alias = col+'_alias'
-                    # formatted_key = self.rewrite(single_attribute, attribute=col)
-
                     formatted_key = self.rewrite(single_attribute, attribute=col)
 
                     eq_statement = self.rewrite(eq, left=formatted_key, right=str(to_replace_key))
@@ -468,18 +470,20 @@ class AFrame:
                     for attr in drop_attrs:
                         new_af = new_af.drop(attr)
                         new_af = new_af.rename({attr + '_alias': attr})
-                    tmp_query = new_af.query
                 else:
                     raise ValueError('Must provide a dictionary for column and values to replace')
                 # df.replace({'A': 0, 'B': 5}, 100)
             else:
                 if isinstance(to_replace, dict):
                     for to_replace_key in to_replace.keys():
-                        # drop_attrs.append(str(to_replace_key))
                         replace_dict = to_replace[to_replace_key]
                         alias = str(to_replace_key) + '_alias'
                         if isinstance(replace_dict, dict):
-                            for condition_key in replace_dict.keys():
+                            keys = replace_dict.keys()
+                            values = replace_dict.values()
+                            if set(keys) & set(values):
+                                raise ValueError("Replacement not allowed with overlapping keys and values")
+                            for condition_key in keys:
                                 replace_val = replace_dict[condition_key]
                                 if isinstance(condition_key, str):
                                     condition_key = self.rewrite(str_format, value=condition_key)
