@@ -386,7 +386,7 @@ class AFrame:
             raise ValueError('mapper must be a dictionary')
 
     def replace(self, to_replace, value=None, columns=None):
-        new_query = self.config_queries['q2']
+        new_query = self.config_queries['q9']
         col_alias = self.config_queries['attribute_value']
         attr_separator = self.config_queries['attribute_separator']
         replace_field_format = self.config_queries['replace']
@@ -395,6 +395,7 @@ class AFrame:
         eq = self.config_queries['eq']
         tmp_query=self.query
         new_schema = []
+        drop_attrs = []
         if columns is not None or self._schema is not None:
             if columns is not None:
                 if not isinstance(columns, list):
@@ -419,13 +420,24 @@ class AFrame:
             for to_replace_key in to_replace_dict.keys():
                 replace_val = to_replace_dict[to_replace_key]
                 for col in columns:
+                    drop_attrs.append(col)
+                    alias = col+'_alias'
+                    # formatted_key = self.rewrite(single_attribute, attribute=col)
+
                     formatted_key = self.rewrite(single_attribute, attribute=col)
+
                     eq_statement = self.rewrite(eq, left=formatted_key, right=str(to_replace_key))
                     replace_field = self.rewrite(replace_field_format, statement=eq_statement, attribute=formatted_key,
                                                  to_replace=str(replace_val), value='TRUE')
-                    col_statement = self.rewrite(col_alias, attribute=replace_field, alias=col)
+                    col_statement = self.rewrite(col_alias, attribute=replace_field, alias=alias)
                     new_schema.append(col_statement)
                     tmp_query = self.rewrite(new_query, attribute_value=col_statement, subquery=tmp_query)
+                    new_af = AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=self.schema,
+                                    query=tmp_query, is_view=self._is_view, con=self._connector)
+                    new_af = new_af.drop(col)
+                    new_af = new_af.rename({col + '_alias': col})
+                    tmp_query = new_af.query
+
         else:
             attributes = ''
             if value is not None:
@@ -433,6 +445,8 @@ class AFrame:
                     value = self.rewrite(str_format, value=value)
                 if isinstance(to_replace, dict):
                     for to_replace_key in to_replace.keys():
+                        drop_attrs.append(str(to_replace_key))
+                        alias = str(to_replace_key) + '_alias'
                         replace_val = to_replace[to_replace_key]
                         if isinstance(replace_val,str):
                             replace_val = self.rewrite(str_format, value=replace_val)
@@ -442,20 +456,28 @@ class AFrame:
                         replace_field = self.rewrite(replace_field_format, statement=eq_statement,
                                                      attribute=formatted_key,
                                                      to_replace=str(value), value='TRUE')
-                        col_statement = self.rewrite(col_alias, attribute=replace_field, alias=to_replace_key)
+                        col_statement = self.rewrite(col_alias, attribute=replace_field, alias=alias)
                         new_schema.append(col_statement)
                         if attributes == '':
                             attributes = col_statement
                         else:
                             attributes = self.rewrite(attr_separator, left=attributes, right=col_statement)
                     tmp_query = self.rewrite(new_query, attribute_value=attributes, subquery=tmp_query)
+                    new_af = AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=self.schema,
+                                    query=tmp_query, is_view=self._is_view, con=self._connector)
+                    for attr in drop_attrs:
+                        new_af = new_af.drop(attr)
+                        new_af = new_af.rename({attr + '_alias': attr})
+                    tmp_query = new_af.query
                 else:
                     raise ValueError('Must provide a dictionary for column and values to replace')
                 # df.replace({'A': 0, 'B': 5}, 100)
             else:
                 if isinstance(to_replace, dict):
                     for to_replace_key in to_replace.keys():
+                        # drop_attrs.append(str(to_replace_key))
                         replace_dict = to_replace[to_replace_key]
+                        alias = str(to_replace_key) + '_alias'
                         if isinstance(replace_dict, dict):
                             for condition_key in replace_dict.keys():
                                 replace_val = replace_dict[condition_key]
@@ -465,21 +487,28 @@ class AFrame:
                                         condition_key = self.rewrite(str_format, value=condition_key)
                                 if isinstance(replace_val, str):
                                     replace_val = self.rewrite(str_format, value=str(replace_val))
+
+                                drop_attrs.append(str(to_replace_key))
+
                                 formatted_key = self.rewrite(single_attribute, attribute=to_replace_key)
                                 eq_statement = self.rewrite(eq, left=formatted_key, right=str(condition_key))
                                 replace_field = self.rewrite(replace_field_format, statement=eq_statement,
-                                                             attribute=formatted_key,
-                                                             to_replace=str(replace_val), value='TRUE')
-                                col_statement = self.rewrite(col_alias, attribute=replace_field, alias=str(to_replace_key))
+                                                                 attribute=formatted_key,
+                                                                 to_replace=str(replace_val), value='TRUE')
+                                col_statement = self.rewrite(col_alias, attribute=replace_field, alias=alias)
                                 new_schema.append(col_statement)
                                 tmp_query = self.rewrite(new_query, attribute_value=col_statement, subquery=tmp_query)
+                                new_af = AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=self.schema,
+                                                query=tmp_query, is_view=self._is_view, con=self._connector)
+                                new_af = new_af.drop(to_replace_key)
+                                new_af = new_af.rename({alias: to_replace_key})
+                                tmp_query = new_af.query
                         else:
                             raise ValueError('Must provide a dictionary for condition and value to be replaced')
 
                 else:
                     raise ValueError('Must provide a dictionary for key and values to be replaced')
                 # df.replace({'A': {0: 100, 4: 400}})
-        new_af = AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=self.schema, query=tmp_query, is_view=self._is_view, con=self._connector)
 
         return new_af
 
