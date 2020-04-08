@@ -192,6 +192,8 @@ class MongoConnector(Connector):
         self._db.drop()
         return 'success'
 
+    get_view = get_collection
+
     drop_view = drop_collection
 
 

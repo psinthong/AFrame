@@ -62,7 +62,7 @@ class AFrame:
     @staticmethod
     def rewrite(query, **kwargs):
         for key, value in kwargs.items():
-            query = query.replace('$'+key, value)
+            query = query.replace('$'+key, str(value))
         return query
 
     @staticmethod
@@ -89,6 +89,7 @@ class AFrame:
         return self.__str__()
 
     def __getitem__(self, key):
+
         if isinstance(key, AFrame):
             new_query = self.config_queries['q3']
             new_query = AFrame.rewrite(new_query, subquery=self.query, statement=key.schema)
@@ -97,15 +98,42 @@ class AFrame:
         if isinstance(key, str):
             attr = self.config_queries['attribute_project']
             attr = AFrame.rewrite(attr, attribute=key)
+
+            if isinstance(self, NestedAFrame):
+                nested_fields = self._nested_fields
+                if '.' in key and key.split('.')[0] in nested_fields:
+                    nested_attribute = key.split('.')[0]
+                    alias = key.split('.')[1]
+                    attr = self.config_queries['attribute_project_nested']
+                    attr = AFrame.rewrite(attr, attribute=key, nested_attribute=nested_attribute, alias=alias)
+
             query = self.config_queries['q2']
             query = AFrame.rewrite(query, attribute_value=attr, subquery=self.query)
             return AFrame(self._dataverse, self._dataset, key, query,is_view=self._is_view, con=self._connector)
 
         if isinstance(key, (np.ndarray, list)):
             query = self.config_queries['q2']
-            attr_format = self.config_queries['attribute_project']
             attr_separator = self._config_queries['attribute_separator']
-            attributes = self.concat_statements(attr_format, attr_separator, key)
+
+            if isinstance(self, NestedAFrame):
+                nested_fields = self._nested_fields
+                attributes = ''
+                for k in key:
+                    if '.' in str(k) and k.split('.')[0] in nested_fields:
+                        nested_attribute = k.split('.')[0]
+                        alias = k.split('.')[1]
+                        attr_format = self.config_queries['attribute_project_nested']
+                        attr = AFrame.rewrite(attr_format, attribute=k, nested_attribute=nested_attribute, alias=alias)
+                    else:
+                        attr_format = self.config_queries['attribute_project']
+                        attr = AFrame.rewrite(attr_format, attribute=k)
+                    if attributes == '':
+                        attributes = self.rewrite(attr_format, attribute=attr)
+                    else:
+                        attributes = self.rewrite(attr_separator, left=attributes, right=attr)
+            else:
+                attr_format = self.config_queries['attribute_project']
+                attributes = self.concat_statements(attr_format, attr_separator, key)
 
             query = self.rewrite(query, attribute_value=attributes, alias='', subquery=self.query)
             return AFrame(self._dataverse, self._dataset, key, query, is_view=self._is_view, con=self._connector)
@@ -157,7 +185,6 @@ class AFrame:
     def head(self, sample=5, query=False):
         limit_query = self.config_queries['limit']
         new_query = AFrame.rewrite(limit_query, num=str(sample), subquery=self.query)
-        # new_query = self.query[:-1] + ' LIMIT %d;' % sample
 
         if query:
             return new_query
@@ -167,8 +194,10 @@ class AFrame:
             result.drop('_uuid', axis=1, inplace=True)
         return result
 
-    def flatten(self):
-        return NestedAFrame(self._dataverse, self._dataset, self.columns, self.query)
+    def flatten(self, columns):
+        if not isinstance(columns, list):
+            columns = [columns]
+        return NestedAFrame(self._dataverse, self._dataset, self.columns, self.query, self._is_view, self._connector, columns)
 
     @property
     def columns(self):
@@ -386,7 +415,6 @@ class AFrame:
             raise ValueError('mapper must be a dictionary')
 
     def replace(self, to_replace, value=None, columns=None):
-        from builtins import zip
         new_query = self.config_queries['q9']
         col_alias = self.config_queries['attribute_value']
         attr_separator = self.config_queries['attribute_separator']
@@ -515,6 +543,30 @@ class AFrame:
                 # df.replace({'A': {0: 100, 4: 400}})
 
         return new_af
+
+    def drop_duplicates(self, subset, keep='first'):
+
+        grp_by_attr = self.config_queries['grp_by_attribute']
+        attr_separator = self.config_queries['attribute_separator']
+        grp_attrs = ''
+        new_q = ''
+        if not isinstance(subset, list):
+            subset = [subset]
+
+        if str(keep).lower() in ['first','last']:
+            new_q = self.config_queries['q16']
+        elif not keep:
+            new_q = self.config_queries['q17']
+        for attr in subset:
+            if grp_attrs == '':
+                grp_attrs = self.rewrite(grp_by_attr, attribute=attr)
+            else:
+                grp_attr = self.rewrite(grp_by_attr, attribute=attr)
+                grp_attrs = self.rewrite(attr_separator, left=grp_attrs, right=grp_attr)
+        new_q = self.rewrite(new_q, grp_by_attribute=grp_attrs, subquery= self.query)
+        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=self.schema,
+                                query=new_q, is_view=self._is_view, con=self._connector)
+
 
     @staticmethod
     def get_column_count(other):
@@ -1161,42 +1213,22 @@ class AFrame:
         return AFrame(self._dataverse, self._dataset, schema, new_query, None, con=self._connector)
 
     def to_collection(self, name, query=False):
-        # create_query = self.config_queries['to_collection']
-        # create_query = self.rewrite(create_query, namespace=self._dataverse, collection=name, subquery=self.query)
         if query:
             return self._connector.to_collection(self.query, self._dataverse, self._dataset, name, True)
         new_con = self._connector.to_collection(self.query, self._dataverse, self._dataset, name)
         return AFrame(dataverse=self._dataverse, dataset=name, con=new_con)
 
     def to_view(self, name, query=False):
-        # create_query = self.config_queries['to_view']
-        # create_query = self.rewrite(create_query, namespace=self._dataverse, collection=name, subquery=self.query)
+
         if query:
             return self._connector.to_view(self.query, self._dataverse, self._dataset, name, True)
-        # new_con = self._connector.to_view(create_query)
+
         new_query = self.config_queries['q15']
         new_query = self.rewrite(new_query, namespace=self._dataverse, view=name)
         new_con = self._connector.to_view(self.query, self._dataverse, self._dataset, name)
-        return AFrame(dataverse=self._dataverse, dataset=name, query=new_query, con=new_con, is_view=True)
-        #
-        # if is_view:
-        #     function_name = '%s.%s' %(dataverse, name)
-        #     function_query = 'CREATE FUNCTION %s(){%s};' % (function_name, self.query)
-        #     self.send(function_query)
-        #     new_q = 'SELECT VALUE t FROM (%s()) t;' % function_name
-        #     return AFrame(dataverse=dataverse, dataset=name, query=new_q, is_view=True, con=self._connector)
-        # else:
-        #     self.create_tmp_dataverse(dataverse)
-        #     if dataverse:
-        #         new_q = 'create dataset %s.%s(TempType) primary key _uuid autogenerated;' % (dataverse, name)
-        #         new_q += '\n insert into %s.%s select value ((%s));' % (dataverse, name, self.query)
-        #         self.send(new_q)
-        #         return AFrame(dataverse, name, con=self._connector)
-        #     else:
-        #         new_q = 'create dataset _Temp.%s(TempType) primary key _uuid autogenerated;' % name
-        #         new_q += '\n insert into _Temp.%s select value ((%s));' % (name, self.query)
-        #         self.send(new_q)
-        #         return AFrame('_Temp', name, con=self._connector)
+        new_view = AFrame(dataverse=self._dataverse, dataset=name, query=new_query, con=new_con, is_view=True)
+        new_view._connector.get_view(dataverse=self._dataverse, dataset=name)
+        return new_view
 
     def get_dataType(self):
         query = 'select value t. DatatypeName from Metadata.`Dataset` t where' \
@@ -1232,25 +1264,45 @@ class AFrame:
 
 
 class NestedAFrame(AFrame):
-    def __init__(self, dataverse, dataset, schema, query=None):
+    def __init__(self, dataverse, dataset, schema, query, is_view, connector, attributes):
         self._schema = schema
         self._query = query
         self._data = None
         self._dataverse = dataverse
         self._dataset = dataset
-        AFrame.__init__(self,dataverse,dataset)
+        self._nested_fields = attributes
+        AFrame.__init__(self, dataverse, dataset, schema, query, is_view=is_view, con=connector)
+        self.get_base_query(attributes)
 
-    def head(self, sample=5):
-        dataset = self._dataverse + '.' + self._dataset
-        if self._query is not None:
-            new_query = self._query+' LIMIT %d;' % sample
-            results = self.send_request(new_query)
-            norm_result = json_normalize(results)
-        else:
-            self._query = 'SELECT VALUE t FROM %s t;' % dataset
-            new_query = self._query + ' LIMIT %d;' % sample
-            results = self.send_request(new_query)
-            norm_result = json_normalize(results)
+    def get_base_query(self, attributes):
+        query = self.config_queries['get_json']
+        for attr in attributes:
+            new_query = self.rewrite(query, subquery=self.query, attribute=attr)
+            self.query = new_query
+
+    def head(self, sample=5, query=False):
+        # dataset = self._dataverse + '.' + self._dataset
+
+        limit_query = self.config_queries['limit']
+        new_query = AFrame.rewrite(limit_query, num=str(sample), subquery=self.query)
+
+        if query:
+            return new_query
+
+        result = self.send_request(new_query)
+        if '_uuid' in result.columns:
+            result.drop('_uuid', axis=1, inplace=True)
+        norm_result = json_normalize(json.loads(result.to_json(orient='records')))
+
+        # if self._query is not None:
+        #     new_query = self._query+' LIMIT %d;' % sample
+        #     results = self.send_request(new_query)
+        #     norm_result = json_normalize(results)
+        # else:
+        #     self._query = 'SELECT VALUE t FROM %s t;' % dataset
+        #     new_query = self._query + ' LIMIT %d;' % sample
+        #     results = self.send_request(new_query)
+        #     norm_result = json_normalize(results)
         norm_cols = norm_result.columns.str.split('.', expand=True).values
         norm_result.columns = pd.MultiIndex.from_tuples([('', x[0]) if pd.isnull(x[1]) else x for x in norm_cols])
 
