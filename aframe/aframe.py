@@ -236,33 +236,21 @@ class AFrame:
             return flatten_results
         return result_lst
 
-    def unnest(self, col, meta=None, appended=False, name=None):
-        dataset = self._dataverse + '.' + self._dataset
-        if isinstance(col, str):
-            schema = 'unnest(t.%s)' % col
-            new_query = 'SELECT VALUE %s FROM %s t unnest t.%s %s;' % (col, dataset, col, col)
-            if isinstance(meta, (np.ndarray, list)):
-                fields = ''
-                for i in range(len(meta)):
-                    if i > 0:
-                        fields += ', '
-                    fields += 't.%s' % meta[i]
-                schema = '%s, t.%s' % (fields, col)
-                new_query = 'SELECT %s, %s FROM %s t unnest t.%s %s;' % (fields, col, dataset, col, col)
-            return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
-        # if not isinstance(col, AFrameObj):
-        #     raise ValueError('A column must be of type \'AFrameObj\'')
-        if isinstance(col, AFrame) and not appended:
-            schema = 'unnest(%s)' % col.schema
-            new_query = 'SELECT VALUE e FROM (%s) t unnest t e;' % col.query
-            return type(self)(self._dataverse, self._dataset, schema, new_query)
-        elif isinstance(col, AFrame) and appended:
-            if not name:
-                raise ValueError('Must provide a string name for the appended column.')
+    def explode(self, column):
+        # add exploded attribute as a new column
+        new_query = self.config_queries['q18']
+        new_column = column+'_alias'
+        new_query = self.rewrite(new_query, subquery=self.query, attribute=column, alias=new_column)
+        tmp_af = AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=self.schema, query=new_query,
+                      is_view=self._is_view, con=self._connector)
 
-            new_query = 'SELECT u %s, t.* FROM %s t unnest t.%s u;' % (name, dataset, col.schema)
-            schema = col.schema
-            return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
+        # drop the original column
+        drop_af = tmp_af.drop(attrs=column)
+
+        # rename the exploded attribute to the original column name
+        result = drop_af.rename({new_column: column})
+
+        return result
 
     def withColumn(self, name, col):
         if not isinstance(name, str):
@@ -392,10 +380,10 @@ class AFrame:
                 new_val = mapper[key]
 
                 new_query = self.config_queries['q9']
-                new_field_format = self.config_queries['attribute_value']
+                new_field_format = self.config_queries['rename']
                 single_attr = self.config_queries['single_attribute']
-                new_field_format = self.rewrite(new_field_format, attribute=single_attr)
-                new_field_format = self.rewrite(new_field_format, attribute=old_val, alias=new_val)
+                new_field_format = self.rewrite(new_field_format, old_attribute=single_attr)
+                new_field_format = self.rewrite(new_field_format, attribute=old_val, new_attribute=new_val)
                 new_query = self.rewrite(new_query, attribute_value=new_field_format, subquery=tmp.query)
 
                 if tmp._schema is not None:
