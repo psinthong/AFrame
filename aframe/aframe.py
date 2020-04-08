@@ -5,7 +5,6 @@ import urllib.request
 import urllib.error
 import pandas.io.json as json
 from aframe.groupby import AFrameGroupBy
-from pandas.io.json import json_normalize
 from aframe.window import Window
 from aframe.connector import Connector
 from aframe.connector import AsterixConnector
@@ -1162,7 +1161,7 @@ class AFrame:
         col_alias = self.config_queries['attribute_value']
         query = self.rewrite(query, attribute_value=col_alias)
         escape_chars = self.config_queries['escape']
-        alias = re.sub(escape_chars, '', str(comparison))
+        alias = re.sub(escape_chars, '', AFrame.rewrite(comparison_statement, left=self.schema, right=str(other)))
         query = self.rewrite(query, alias=alias, attribute=comparison, subquery=self.query)
         return AFrame(self._dataverse, self._dataset, comparison, query, is_view=self._is_view, con=self._connector)
 
@@ -1281,8 +1280,6 @@ class NestedAFrame(AFrame):
             self.query = new_query
 
     def head(self, sample=5, query=False):
-        # dataset = self._dataverse + '.' + self._dataset
-
         limit_query = self.config_queries['limit']
         new_query = AFrame.rewrite(limit_query, num=str(sample), subquery=self.query)
 
@@ -1292,17 +1289,7 @@ class NestedAFrame(AFrame):
         result = self.send_request(new_query)
         if '_uuid' in result.columns:
             result.drop('_uuid', axis=1, inplace=True)
-        norm_result = json_normalize(json.loads(result.to_json(orient='records')))
-
-        # if self._query is not None:
-        #     new_query = self._query+' LIMIT %d;' % sample
-        #     results = self.send_request(new_query)
-        #     norm_result = json_normalize(results)
-        # else:
-        #     self._query = 'SELECT VALUE t FROM %s t;' % dataset
-        #     new_query = self._query + ' LIMIT %d;' % sample
-        #     results = self.send_request(new_query)
-        #     norm_result = json_normalize(results)
+        norm_result = pd.json_normalize(json.loads(result.to_json(orient='records')))
         norm_cols = norm_result.columns.str.split('.', expand=True).values
         norm_result.columns = pd.MultiIndex.from_tuples([('', x[0]) if pd.isnull(x[1]) else x for x in norm_cols])
 
