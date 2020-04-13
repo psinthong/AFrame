@@ -1133,23 +1133,36 @@ class AFrame:
     def __le__(self, other):
         return self.binary_opt(other, 'le')
 
+    def isin(self, values):
+        if not isinstance(values, list):
+            raise ValueError('Values must be a list')
+        return self.binary_opt(values, 'isin')
+
     def binary_opt(self, other, opt):
         comparison_statement = self.config_queries[opt]
 
         single_attr_format = self.config_queries['single_attribute']
         single_attr_format = self.rewrite(single_attr_format, attribute=self.schema)
+        attr_separator = self.config_queries['attribute_separator']
 
-        if type(other) == str:
-            comparison = AFrame.rewrite(comparison_statement, left=single_attr_format, right='"'+other+'"')
-        else:
-            comparison = AFrame.rewrite(comparison_statement, left=single_attr_format, right=str(other))
-        # query = 'SELECT VALUE %s FROM (%s) t;' %(selection, self.query)
+        other = other if isinstance(other, list) else [other]
+
+        other_str = ''
+        for item in other:
+            if type(other) == str:
+                item = '"'+item+'"'
+            if other_str == '':
+                other_str = str(item)
+            else:
+                other_str = self.rewrite(attr_separator, left=other_str, right=item)
+
+        comparison = AFrame.rewrite(comparison_statement, left=single_attr_format, right=other_str)
 
         query = self.config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         query = self.rewrite(query, attribute_value=col_alias)
         escape_chars = self.config_queries['escape']
-        alias = re.sub(escape_chars, '', AFrame.rewrite(comparison_statement, left=self.schema, right=str(other)))
+        alias = re.sub(escape_chars, '', AFrame.rewrite(comparison_statement, left=self.schema, right=str(other_str)))
         query = self.rewrite(query, alias=alias, attribute=comparison, subquery=self.query)
         return AFrame(self._dataverse, self._dataset, comparison, query, is_view=self._is_view, con=self._connector)
 
