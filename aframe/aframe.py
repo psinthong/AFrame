@@ -445,7 +445,7 @@ class AFrame:
 
                     eq_statement = self.rewrite(eq, left=formatted_key, right=str(to_replace_key))
                     replace_field = self.rewrite(replace_field_format, statement=eq_statement, attribute=formatted_key,
-                                                 to_replace=str(replace_val), value='TRUE')
+                                                 to_replace=str(replace_val))
                     col_statement = self.rewrite(col_alias, attribute=replace_field, alias=alias)
                     new_schema.append(col_statement)
                     tmp_query = self.rewrite(new_query, attribute_value=col_statement, subquery=tmp_query)
@@ -472,7 +472,7 @@ class AFrame:
                         eq_statement = self.rewrite(eq, left=formatted_key, right=str(replace_val))
                         replace_field = self.rewrite(replace_field_format, statement=eq_statement,
                                                      attribute=formatted_key,
-                                                     to_replace=str(value), value='TRUE')
+                                                     to_replace=str(value))
                         col_statement = self.rewrite(col_alias, attribute=replace_field, alias=alias)
                         new_schema.append(col_statement)
                         if attributes == '':
@@ -513,7 +513,7 @@ class AFrame:
                                 eq_statement = self.rewrite(eq, left=formatted_key, right=str(condition_key))
                                 replace_field = self.rewrite(replace_field_format, statement=eq_statement,
                                                                  attribute=formatted_key,
-                                                                 to_replace=str(replace_val), value='TRUE')
+                                                                 to_replace=str(replace_val))
                                 col_statement = self.rewrite(col_alias, attribute=replace_field, alias=alias)
                                 new_schema.append(col_statement)
                                 tmp_query = self.rewrite(new_query, attribute_value=col_statement, subquery=tmp_query)
@@ -530,6 +530,41 @@ class AFrame:
                 # df.replace({'A': {0: 100, 4: 400}})
 
         return new_af
+
+    def clip(self, lower=None, upper=None, columns=None):
+        original_query = self.query
+        project_query = self.config_queries['q2']
+        attribute_value = self.config_queries['attribute_value']
+        single_attribute = self.config_queries['single_attribute']
+        replace_statement = self.config_queries['replace']
+
+        attribute_value = self.rewrite(attribute_value, attribute=replace_statement)
+        project_query = self.rewrite(project_query, attribute_value=attribute_value)
+
+        le_format = self.config_queries['le']
+        ge_format = self.config_queries['ge']
+
+        if self.schema is not None:
+            columns = self.schema if isinstance(self.schema, list) else [self.schema]
+        else:
+            if columns is None:
+                raise ValueError('Must provide column names')
+
+        new_query = ''
+        for col in columns:
+            formatted_key = self.rewrite(single_attribute, attribute=col)
+            if lower is not None:
+                le_statement = self.rewrite(le_format, left= formatted_key, right=lower)
+                new_query =self.rewrite(project_query, subquery=original_query, alias=col, statement=le_statement,
+                                        attribute=formatted_key, to_replace=lower)
+                original_query = new_query
+            if upper is not None:
+                ge_statement = self.rewrite(ge_format, left= formatted_key, right=upper)
+                new_query =self.rewrite(project_query, subquery=original_query, alias=col, statement=ge_statement,
+                                        attribute=formatted_key, to_replace=upper)
+                original_query = new_query
+        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=columns, query=new_query,
+                      is_view=self._is_view, con=self._connector)
 
     def drop_duplicates(self, subset, keep='first'):
 
@@ -689,8 +724,14 @@ class AFrame:
         schema = new_query
         return AFrame(self._dataverse, self._dataset, schema, new_query, con=self._connector)
 
+    def nlargest(self, n, columns, query=False):
+        return self.sort_values(columns, ascending=False).head(n, query)
+
+    def nsmallest(self, n, columns, query=False):
+        return self.sort_values(columns, ascending=True).head(n, query)
+
     def describe(self, cols=None, query=False):
-        funcs = ['avg', 'stddev', 'min', 'max', 'count']
+        funcs = ['avg', 'std', 'min', 'max', 'count']
         data = []
 
         new_query = self._config_queries['q14']
@@ -801,6 +842,17 @@ class AFrame:
         new_query = self.config_queries['q11']
         new_query = self.rewrite(new_query, attribute_remove=remove_list, subquery=self.query)
         return AFrame(self._dataverse, self._dataset, self.schema, new_query, con=self._connector)
+
+    def pop(self, item):
+        if not isinstance(item, str):
+            raise ValueError('name of column to pop must be string')
+
+        pop_df = self[item]
+        new_df = self.drop(item)
+        self.query = new_df.query
+        self._schema = new_df._schema
+        return pop_df
+
 
     def astype(self, type_name, columns=None):
         new_type_cols = ''
@@ -1096,24 +1148,57 @@ class AFrame:
         new_query = self.rewrite(new_query, subquery=self.query, attribute=condition, alias=alias)
         return AFrame(self._dataverse, self._dataset, condition, new_query, is_view=self._is_view, con=self._connector)
 
-    def max(self):
-        return self.agg_function('max')
+    def max(self, query=False):
+        return self.agg_function('max', query)
 
-    def min(self):
-        return self.agg_function('min')
+    def min(self, query=False):
+        return self.agg_function('min', query)
 
-    def avg(self):
-        return self.agg_function('avg')
+    def avg(self, query=False):
+        return self.agg_function('avg', query)
 
-    def count(self):
-        return self.agg_function('count')
+    def count(self, query=False):
+        return self.agg_function('count', query)
 
-    def agg_function(self, func):
+    def sum(self, query=False):
+        return self.agg_function('sum', query)
+
+    def std(self, query=False):
+        return self.agg_function('std', query)
+
+    def var(self, query=False):
+        return self.agg_function('var', query)
+
+    mean=avg
+
+    def agg_function(self, func, query=False):
         if self.schema is None:
             raise ValueError('Require to select at least one attribute')
-        new_query = 'SELECT VALUE %s(t) FROM (%s) t;' % (func, self.query)
-        result = self.send_request(new_query)
-        return result.iloc[0]
+
+        query_templat = self._config_queries['q14']
+        attribute_format = self._config_queries['agg_value']
+        attribute_separator = self.config_queries['attribute_separator']
+        return_all = self._config_queries['return_all']
+        func_format = self._config_queries[func]
+
+        columns = self.schema if isinstance(self.schema, list) else [self.schema]
+
+        attribute_str = ''
+        for col in columns:
+            col_func = self.rewrite(func_format, attribute=col)
+            formatted_attr = self.rewrite(attribute_format, func=col_func, agg_func=func, attribute=col)
+            if attribute_str == '':
+                attribute_str = formatted_attr
+            else:
+                attribute_str = self.rewrite(attribute_separator, left=attribute_str, right=formatted_attr)
+        formatted_query = self.rewrite(query_templat, agg_value=attribute_str, subquery=self.query)
+        new_query = self.rewrite(return_all, subquery=formatted_query)
+        if query:
+            return new_query
+
+        stats = self.send_request(new_query).iloc[0]
+
+        return stats
 
     def __eq__(self, other):
         return self.binary_opt(other, 'eq')
