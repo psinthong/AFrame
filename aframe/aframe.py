@@ -162,7 +162,7 @@ class AFrame:
             self._schema = [new_field_format]
         self.query = new_query
 
-    def __len__(self):
+    def __len__(self, query=False):
         result = self.get_count()
         self._info['count'] = result
         return result
@@ -625,34 +625,15 @@ class AFrame:
         # config = configparser.ConfigParser()
         # config.read(self._config)
         # if config['SERVER']['asterixdb'] == 'True':
-        query = 'SELECT VALUE dt FROM Metadata.`Dataset` ds, Metadata.`Datatype` dt ' \
-                'WHERE ds.DatasetName = \"%s\" AND ds.DatatypeName = dt.DatatypeName ' \
-                'AND dt. DataverseName = \"%s\";' % (dataset,dataverse)
+        query = 'SELECT VALUE ds FROM Metadata.`Dataset` ds' \
+                ' WHERE ds.DatasetName = \"%s\" AND ds.DataverseName = \"%s\";' % (dataset,dataverse)
         # print(query)
         result = self.send_request(query)
 
         if len(result) == 0:
             raise ValueError('Cannot find %s.%s' %(dataverse,dataset))
         else:
-            result = result.iloc[0]
-
-        is_open = result['Derived']['Record']['IsOpen']
-        if is_open:
-            self._datatype = 'open'
-        else:
-            self._datatype = 'close'
-        self._datatype_name = result['DatatypeName']
-        fields = result['Derived']['Record']['Fields']
-        for field in fields:
-            name = field['FieldName']
-            type = field['FieldType']
-            # nullable = field['IsNullable']
-            column = dict([(name, type)])
-            # column = name
-            if self._columns is None:
-                self._columns = [column]
-            else:
-                self._columns.append(column)
+            pass
 
     def merge(self, other, left_on=None, right_on=None, how='inner', l_alias='l', r_alias='r', hint=None):
         join_types = {'inner': 'q12', 'left': 'q13', 'inner_hint': 'q12_hint', 'left_hint': 'q13_hint'}
@@ -1277,25 +1258,48 @@ class AFrame:
         return dataverse, dataset
 
     def map(self, func, *args, **kwargs):
+        project_query = self.config_queries['q2']
+        attribute_value = self.config_queries['attribute_value']
+        project_query = self.rewrite(project_query, attribute_value=attribute_value)
+        single_attribute = self.config_queries['single_attribute']
+        function_format = self.config_queries['function_format']
+        attribute_separator = self.config_queries['attribute_separator']
+        kwarg_format =self.config_queries['kwarg']
+        string_format = self.config_queries['str_format']
+        escape_chars = self.config_queries['escape']
+
         if not isinstance(func, str):
             raise TypeError('Function name must be string.')
         args_str = ''
         if args:
+            function_format = self.config_queries['function_arg_format']
             for arg in args:
                 if isinstance(arg, str):
-                    args_str += ', \"%s\"' % arg
-                else:
-                    args_str += ', ' + str(arg)
+                    arg = self.rewrite(string_format, value=arg)
+                args_str = args_str if args_str == '' else self.rewrite(attribute_separator, left=args_str, right=arg)
         if kwargs:
+            function_format = self.config_queries['function_arg_format']
             for key, value in kwargs.items():
                 if isinstance(value, str):
-                    args_str += ', %s = \"%s\"' % (key, value)
-                else:
-                    args_str += ', %s = %s' % (key, str(value))
+                    value = self.rewrite(string_format, value=value)
+                    # args_str += ', %s = \"%s\"' % (key, value)
+                arg = self.rewrite(kwarg_format, key=key, value=value)
+                args_str = args_str if args_str == '' else self.rewrite(attribute_separator, left=args_str, right=arg)
+
+        attribute_str=''
+        attributes = self.schema if isinstance(self.schema, list) else [self.schema]
+
+        for attr in attributes:
+            attr = self.rewrite(single_attribute, attribute=attr)
+            attribute_str = attr if attribute_str == '' else self.rewrite(attribute_separator, left=attribute_str, right=attr)
+
+        function = self.rewrite(function_format, function=func, attribute=attribute_str, argument=args_str)
         # schema = func + '(' + self.schema + args_str + ')'
-        schema = '%s(%s%s)' % (func, self.schema, args_str)
-        new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query)
-        return AFrame(self._dataverse, self._dataset, schema, new_query, None, con=self._connector)
+        # schema = '%s(%s%s)' % (func, self.schema, args_str)
+        # new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query)
+        alias = re.sub(escape_chars, '', str(function))
+        new_query = self.rewrite(project_query, alias=alias, attribute=function, subquery=self.query)
+        return AFrame(self._dataverse, self._dataset, alias, new_query, is_view=self._is_view, con=self._connector)
 
     def to_collection(self, name, query=False):
         if query:
