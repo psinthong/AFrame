@@ -152,7 +152,7 @@ class AFrameGroupBy:
 
         # grp_attributes = af.AFrame.concat_statements(agg_statement, attr_separator, self._by)
         if len(agg_values) == 1:
-            agg_val_str = agg_values
+            agg_val_str = agg_values[0]
         else:
             agg_val_str = ''
             for i in range(len(agg_values) - 1):
