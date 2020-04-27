@@ -162,7 +162,7 @@ class AFrame:
             self._schema = [new_field_format]
         self.query = new_query
 
-    def __len__(self, query=False):
+    def __len__(self):
         result = self.get_count()
         self._info['count'] = result
         return result

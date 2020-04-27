@@ -156,6 +156,10 @@ class MongoConnector(Connector):
         return MongoClient(db_str)
 
     def send_request(self, query):
+        # drop_id = ', { "$project": { "_id": 0 } }'
+        # if query[0] == ',':
+        #     query = query[1:]
+        # query += drop_id
         p_lst = [json.loads(s.strip(',')) for s in query.split('\r\n')]
         results = list(self._db.aggregate(pipeline=p_lst, allowDiskUse=True))
         return pd.DataFrame(results)
