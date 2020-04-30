@@ -50,10 +50,13 @@ class Connector:
 
 class AsterixConnector(Connector):
     def __init__(self, server_address="http://localhost:19002", config_file_path="sql_pp.ini"):
-        Connector.__init__(self, server_address=server_address, config_file_path=config_file_path)
         self._db = self.connect(server_address)
+        Connector.__init__(self, server_address=self._db, config_file_path=config_file_path)
 
     def connect(self, server_address):
+        import urllib.parse
+        if not urllib.parse.urlparse(server_address).scheme:
+            server_address = "http://" + server_address
         return server_address
 
     def send_request(self, query):

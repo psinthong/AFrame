@@ -175,11 +175,8 @@ class AFrame:
         return int(result)
 
     def __str__(self):
-        if self._columns:
-            txt = 'AsterixDB DataFrame with the following pre-defined columns: \n\t'
-            return txt + str(self._columns)
-        else:
-            return 'Empty AsterixDB DataFrame'
+        txt = 'AFrame: a DataFrame interface for databases'
+        return txt
 
     def head(self, sample=5, query=False):
         limit_query = self.config_queries['limit']
@@ -657,7 +654,7 @@ class AFrame:
             return AFrame(self._dataverse, self._dataset, self.schema, new_query, is_view=self._is_view, con=self._connector)
 
     def groupby(self, by):
-        return AFrameGroupBy(self._dataverse, self._dataset, self.query, self._config_queries, self._connector, by)
+        return AFrameGroupBy(self._dataverse, self._dataset, self.query, self._config_queries, self._connector, by, self._is_view)
 
     def apply(self, func, *args, **kwargs):
         if not isinstance(func, str):
@@ -1210,13 +1207,14 @@ class AFrame:
         single_attr_format = self.config_queries['single_attribute']
         single_attr_format = self.rewrite(single_attr_format, attribute=self.schema)
         attr_separator = self.config_queries['attribute_separator']
+        string_format = self.config_queries['str_format']
 
         other = other if isinstance(other, list) else [other]
 
         other_str = ''
         for item in other:
-            if type(other) == str:
-                item = '"'+item+'"'
+            if type(item) == str:
+                item = self.rewrite(string_format, value=item)
             if other_str == '':
                 other_str = str(item)
             else:

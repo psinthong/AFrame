@@ -6,7 +6,7 @@ from aframe.connector import Connector
 
 class AFrameGroupBy:
 
-    def __init__(self, dataverse, dataset, old_query, config_queries, connector=Connector(), by=None):
+    def __init__(self, dataverse, dataset, old_query, config_queries, connector=Connector(), by=None, is_view=False):
         self._dataverse = dataverse
         self._dataset = dataset
         self._con = connector
@@ -15,6 +15,7 @@ class AFrameGroupBy:
         self._config_queries = config_queries
         self._by = self.get_by_attributes(by)
         self._query = self.get_initial_query(old_query,by)
+        self._is_view=is_view
 
 
     @property
@@ -91,15 +92,6 @@ class AFrameGroupBy:
                 condition = af.AFrame.rewrite(and_statement, left=left, right=right)
         return condition
 
-    # def count(self):
-    #     columns = [self._by, 'count']
-    #     dataset = self._dataverse + '.' + self._dataset
-    #     new_query = 'SELECT %s, array_count(grps) AS count FROM %s t ' \
-    #                 'GROUP BY t.%s GROUP AS grps(t AS grp);' % (self._by, dataset, self._by)
-    #     # new_query = 'SELECT VALUE count(*) FROM (%s) t;' % self.query
-    #     results = pd.DataFrame(self.send_request(new_query))
-    #     return results
-
     def agg(self, func, query=False):
         if not isinstance(func, dict):
             raise ValueError("Currently only support a dictionary of attribute:func or [funcs]")
@@ -123,11 +115,11 @@ class AFrameGroupBy:
 
         if query:
             return agg_query
-
-        results = json.dumps(self.send_request(agg_query))
-        df = pd.DataFrame(data=json.read_json(results))
-        df = df.sort_values(self._by).set_index(self._by)
-        return df
+        return af.AFrame(self._dataverse, self._dataset, self._schema, agg_query, is_view=self._is_view, con=self._con)
+        # results = json.dumps(self.send_request(agg_query))
+        # df = pd.DataFrame(data=json.read_json(results))
+        # df = df.sort_values(self._by).set_index(self._by)
+        # return df
 
     aggregate = agg
 
