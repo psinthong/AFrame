@@ -2,9 +2,10 @@ import pandas as pd
 import configparser
 import os
 import json
+from abc import ABC, abstractmethod
 
 
-class Connector:
+class Connector(ABC):
 
     def __init__(self, server_address=None, config_file_path=None, **kwargs):
         self._server_address = server_address
@@ -14,11 +15,13 @@ class Connector:
     def server_address(self):
         return self._server_address
 
+    @abstractmethod
     def connect(self, config_file):
-        return None
+        pass
 
+    @abstractmethod
     def send_request(self, query):
-        return pd.DataFrame()
+        pass
 
     def get_config_queries(self):
         queries = {}
@@ -30,21 +33,27 @@ class Connector:
         return queries
 
     def get_collection(self, dataverse, dataset):
-        return None
+        pass
 
     def get_view(self, dataverse, dataset):
-        return None
+        pass
 
     def to_collection(self, subquery, namespace, collection, name, query=False):
-        return Connector
+        pass
 
     def to_view(self, subquery, namespace, collection, name, query=False):
-        return Connector
+        pass
+
+    def to_transformation(self, subquery, namespace, collection, name, query=False):
+        pass
 
     def drop_collection(self, namespace, collection):
         pass
 
     def drop_view(self, namespace, collection):
+        pass
+
+    def drop_transformation(self, namespace, name):
         pass
 
 
@@ -112,12 +121,28 @@ class AsterixConnector(Connector):
         self.submit(new_query)
         return AsterixConnector(self.server_address)
 
+    def to_transformation(self, subquery, namespace, collection, name, query=False):
+        template = 'SELECT VALUE t FROM $namespace.$collection t'
+        template = template.replace('$namespace', namespace).replace('$collection', collection)
+        new_q = 'SELECT VALUE t FROM to_array(r) AS t'
+        subquery = subquery.replace(template, new_q)
+        new_query = 'CREATE OR REPLACE FUNCTION $namespace.$name(r){\n($subquery)[0]};'
+        new_query = new_query.replace('$subquery', subquery).replace('$namespace', namespace).replace('$name', name)
+        if query:
+            return new_query
+        self.submit(new_query)
+        return AsterixConnector(self.server_address)
+
     def drop_collection(self, namespace, collection):
         drop_query = 'DROP DATASET {}.{};'.format(namespace, collection)
         return self.submit(drop_query)
 
     def drop_view(self, namespace, collection):
         drop_query = 'DROP FUNCTION {}.{}@0;'.format(namespace, collection)
+        return self.submit(drop_query)
+
+    def drop_transformation(self, namespace, name):
+        drop_query = 'DROP FUNCTION {}.{}@1;'.format(namespace, name)
         return self.submit(drop_query)
 
     def get_view(self, dataverse, dataset):
@@ -244,3 +269,98 @@ class CypherConnector(Connector):
         query = 'MATCH (n:_View) WHERE n.namespace = "{}" AND n.collection = "{}" DELETE n'.format(namespace, collection)
         self._db.run(query)
         return 'success'
+
+
+class InfluxDBConnector(Connector):
+
+    def __init__(self, server_address=None, config_file_path="flux.ini", token=None, org=None):
+
+        Connector.__init__(self, server_address, config_file_path)
+        self._db = self.connect(url=self.server_address, token=token)
+        self._org = org
+
+    def connect(self, url, token):
+        from influxdb_client import InfluxDBClient
+        client = InfluxDBClient(url=url, token=token)
+        return client
+
+    def send_request(self, query):
+        internal_cols = ['result', 'table', '_start', '_stop', '_value', '_field', '_measurement']
+        result_obj = self._db.query_api().query_data_frame(query, org=self._org)
+        if isinstance(result_obj, pd.DataFrame):
+            return result_obj.drop(internal_cols, axis=1, errors='ignore')
+        else:
+            return pd.concat(result_obj).drop(internal_cols, axis=1, errors='ignore')
+
+    def submit(self, query):
+        internal_cols = ['result', 'table', '_start', '_stop', '_value', '_field', '_measurement']
+        result_obj = self._db.query_api().query(query,org=self._org)
+        if isinstance(result_obj, pd.DataFrame):
+            return result_obj.drop(internal_cols, axis=1, errors='ignore')
+        else:
+            return pd.concat(result_obj).drop(internal_cols, axis=1, errors='ignore')
+
+    def to_collection(self, subquery, namespace, collection, name, query=False):
+        new_query = '$subquery\n' \
+                    '|> to(bucket:"$name", org:"$namespace")'
+        new_query = new_query.replace('$namespace', namespace).replace('$name', name).replace('$subquery', subquery)
+        if query:
+            return new_query
+        self.send_request(new_query)
+        return AsterixConnector(self.server_address)
+
+
+class CBAnalyticsConnector(Connector):
+
+    def __init__(self, server_address, username, password, config_file_path="sql_pp.ini"):
+
+        Connector.__init__(self, server_address, config_file_path)
+        self._db = server_address+'/analytics/service'
+        self._username = username
+        self._password = password
+
+    def connect(self, server_address, username=None, password=None):
+        import requests
+        data = {'statement': 'select 1;'}
+        return requests.get(server_address, params=data, auth=(username, password))
+
+    def send_request(self, query):
+        import requests
+        data = {'statement': query}
+        results = requests.post(self._db, data=data, auth=(self._username, self._password))
+        json_result = results.json()
+        if results.status_code == 200:
+            return pd.DataFrame(json_result['results'])
+        else:
+            raise ValueError(json_result['errors'][0]['msg'])
+
+    def to_view(self, subquery, namespace, collection, name, query=False):
+        new_query = 'CREATE FUNCTION $namespace.$name(){\n$subquery};'
+        new_query = new_query.replace('$namespace', namespace).replace('$name', name).replace('$subquery', subquery)
+        if query:
+            return new_query
+        self.send_request(new_query)
+        return CBAnalyticsConnector(self.server_address, self._username, self._password)
+
+    def to_transformation(self, subquery, namespace, collection, name, query=False):
+        template = 'SELECT VALUE t FROM $namespace.$collection t'
+        template = template.replace('$namespace', namespace).replace('$collection', collection)
+        new_q = 'SELECT VALUE t FROM to_array(r) AS t'
+        subquery = subquery.replace(template, new_q)
+        new_query = 'CREATE FUNCTION $namespace.$name(r){\n($subquery)[0]};'
+        new_query = new_query.replace('$subquery', subquery).replace('$namespace', namespace).replace('$name', name)
+        if query:
+            return new_query
+        self.send_request(new_query)
+        return CBAnalyticsConnector(self.server_address, self._username, self._password)
+
+    def drop_view(self, namespace, collection):
+        drop_query = 'DROP FUNCTION {}.{}@0;'.format(namespace, collection)
+        return self.send_request(drop_query)
+
+    def drop_transformation(self, namespace, name):
+        drop_query = 'DROP FUNCTION {}.{}@1;'.format(namespace, name)
+        return self.send_request(drop_query)
+
+    def get_view(self, dataverse, dataset):
+        return '{}.{}();'.format(dataverse, dataset)

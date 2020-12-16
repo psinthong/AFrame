@@ -6,7 +6,7 @@ from aframe.connector import Connector
 
 class AFrameGroupBy:
 
-    def __init__(self, dataverse, dataset, old_query, config_queries, connector=Connector(), by=None, is_view=False):
+    def __init__(self, dataverse, dataset, old_query, config_queries, connector=None, by=None, is_view=False):
         self._dataverse = dataverse
         self._dataset = dataset
         self._con = connector
@@ -115,7 +115,7 @@ class AFrameGroupBy:
 
         if query:
             return agg_query
-        return af.AFrame(self._dataverse, self._dataset, self._schema, agg_query, is_view=self._is_view, con=self._con)
+        return af.AFrame(self._dataverse, self._dataset, self._schema, agg_query, is_view=self._is_view, connector=self._con)
         # results = json.dumps(self.send_request(agg_query))
         # df = pd.DataFrame(data=json.read_json(results))
         # df = df.sort_values(self._by).set_index(self._by)
