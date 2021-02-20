@@ -72,7 +72,7 @@ class AsterixConnector(Connector):
         import urllib.parse
         import urllib.request
         import urllib.error
-        from pandas.io import json
+        # from pandas.io import json
 
         host = self._server_address + '/query/service'
         data = dict()
@@ -82,8 +82,7 @@ class AsterixConnector(Connector):
             handler = urllib.request.urlopen(host, data)
             result = json.loads(handler.read())
             result = result['results']
-            data = json.read_json(json.dumps(result))
-            df = pd.DataFrame(data)
+            df = pd.DataFrame(result)
             if '_uuid' in df.columns:
                 df.drop('_uuid', axis=1, inplace=True)
             return df
@@ -147,6 +146,35 @@ class AsterixConnector(Connector):
 
     def get_view(self, dataverse, dataset):
         return '{}.{}();'.format(dataverse, dataset)
+
+    def get_window(self, window):
+        over = ''
+        if window is not None:
+            if window.part() is not None:
+                over += 'PARTITION BY t.%s ' % window._part
+            if window.ord() is not None:
+                over += 'ORDER BY t.%s ' % window._ord
+            if window.rows() is not None:
+                frame = window.rows()
+                if isinstance(frame, tuple):
+                    start = frame[0]
+                    end = frame[1]
+                    start_str = ''
+                    end_str = ''
+                    if start == 0:
+                        start_str = 'CURRENT ROW'
+                    elif start != 0:
+                        start_str = '%d PRECEDING' % (start * -1)
+                    if end == 0:
+                        end_str = 'CURRENT ROW'
+                    elif end != 0:
+                        end_str = '%d FOLLOWING' % end
+                    rows = 'ROWS BETWEEN %s AND %s' % (start_str, end_str)
+                    over += rows
+        # else:
+        #     over += 'ORDER BY t.%s ' % on
+        # return 'OVER(%s)' % over
+        return over
 
 
 class SQLConnector(Connector):
@@ -308,6 +336,15 @@ class InfluxDBConnector(Connector):
             return new_query
         self.send_request(new_query)
         return AsterixConnector(self.server_address)
+
+    def get_window(self, window):
+        over = ''
+        if window.rows() is not None:
+            frame = window.rows()
+            if isinstance(frame, str):
+                period = 'period: %s' % (frame)
+                over += period
+        return over
 
 
 class CBAnalyticsConnector(Connector):

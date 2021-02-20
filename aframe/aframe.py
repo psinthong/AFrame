@@ -149,6 +149,8 @@ class AFrame:
 
         new_query = self.config_queries['q9']
         new_field_format = self.config_queries['attribute_value']
+        attribute_format = self.config_queries['single_attribute']
+        new_field_format = self.rewrite(new_field_format, attribute=attribute_format)
         new_field_format = self.rewrite(new_field_format, attribute=value.schema, alias=key)
         new_query = self.rewrite(new_query, attribute_value=new_field_format, subquery=self.query)
 
@@ -198,7 +200,28 @@ class AFrame:
         if self._columns:
             return self._columns
         else:
-            return self.head().columns
+            n = self.config_queries['sample_size']
+            samples = self.head(n)
+            return samples.columns
+
+    @property
+    def dtypes(self):
+        n = self.config_queries['sample_size']
+        samples = self.head(n)
+        return samples.dtypes
+
+    @property
+    def shape(self):
+        n = self.config_queries['sample_size']
+        samples = self.head(n)
+        column_count = len(samples.columns)
+        row_count = len(self)
+        return (row_count, column_count)
+
+    @property
+    def ndim(self):
+        return 2
+
 
     def toPandas(self, sample: int = 0):
         if sample > 0:
@@ -686,6 +709,77 @@ class AFrame:
         schema = new_query
         return AFrame(self._dataverse, self._dataset, schema, new_query, connector=self._connector)
 
+    @staticmethod
+    def _return_element_list(item):
+        if isinstance(item, list):
+            return item
+        else:
+            return [item]
+
+    def value_counts(self, subset=None, normalize=False, sort=True, ascending=False):
+        if self.schema is None and subset is None:
+            raise ValueError('Must supply column(s) to get value_counts on')
+        cols = AFrame._return_element_list(subset) if subset else AFrame._return_element_list(self.schema)
+
+        func = 'count'
+
+        agg_query = self._config_queries['q8']
+        agg_statement = self._config_queries['agg_value']
+        grp_statement = self._config_queries['grp_value']
+        grp_attr_format = self._config_queries['grp_by_attribute']
+        attr_separator = self._config_queries['attribute_separator']
+        grp_attributes = self.concat_statements(grp_attr_format, attr_separator, cols)
+        grp_val_str = self.concat_statements(grp_statement, attr_separator, cols)
+
+        func_format = self._config_queries[func]
+        agg_func_format = agg_statement.replace('$agg_func_$attribute', func, 1)
+        agg_func_format = self.rewrite(agg_func_format, func=func_format)
+
+        agg_val_str = self.rewrite(agg_func_format, agg_func=func, attribute=cols[0])
+
+        agg_query = self.rewrite(agg_query, subquery=self.query, grp_by_attribute=grp_attributes,
+                                      agg_value=agg_val_str, grp_value=grp_val_str)
+        return_all = self._config_queries['return_all']
+        agg_query = self.rewrite(return_all, subquery=agg_query)
+
+        tmp = AFrame(self._dataverse, self._dataset, self._schema, agg_query, is_view=self._is_view, connector=self._connector)
+
+        if normalize:
+            total_cnt = len(self)
+            norm_col = tmp[func]/total_cnt
+            tmp[func] = norm_col
+
+        if sort:
+            tmp = tmp.sort_values(by=func, ascending=ascending)
+        return tmp
+
+    def nunique(self, axis=0, query=False):
+        if axis != 0:
+            raise ValueError('This operation is not supported on rows')
+        if not self.schema:
+            raise ValueError('Select columns to get nunique values')
+        unique_keys = self._return_element_list(self.schema)
+
+        unique_format = self.config_queries['q10']
+        results = dict()
+        queries = []
+        cnt = 0
+        for key in unique_keys:
+            unique = self.rewrite(unique_format, attribute=key, subquery=self.query)
+            count_query = self.config_queries['q4']
+            count_query = self.rewrite(count_query, subquery=unique)
+            if query:
+                cnt += 1
+                if cnt != len(unique_keys):
+                    queries.append(count_query)
+                else:
+                    queries.append(count_query)
+                    return queries
+            count = self.send_request(count_query).values[0][0]
+            results[key] = count
+
+        return pd.Series(results)
+
     def nlargest(self, n, columns, query=False):
         return self.sort_values(columns, ascending=False).head(n, query)
 
@@ -736,11 +830,63 @@ class AFrame:
             res = pd.DataFrame(data, index=funcs, columns=cols)
             return res
 
+    def diff(self, subset=None, inplace=True, order_by=None):
+        tmp = AFrame(self._dataverse, self._dataset, copy.deepcopy(self.schema), copy.deepcopy(self.query),
+                     is_view=copy.deepcopy(self._is_view),
+                     connector=self._connector)
+        if subset:
+            columns = self._return_element_list(subset)
+        else:
+            if not self.schema:
+                raise ValueError('Must provide a subset of column names')
+            columns = self._return_element_list(self.schema)
+        col_name = 'org_{}'
+
+        diff_cols = ''
+        new_query = self._config_queries['diff']
+        attribute_name = self._config_queries['attribute_name']
+        attr_separator = self._config_queries['attribute_separator']
+
+        for col in columns:
+            tmp[col_name.format(col)] = tmp[col]
+            diff_col = self.rewrite(attribute_name, attribute=col)
+            diff_cols = diff_col if diff_cols == '' else self.rewrite(attr_separator, left=diff_cols, right=diff_col)
+
+        if not inplace:
+            new_query = self.rewrite(new_query, attribute_name=diff_cols, subquery=tmp.query)
+            tmp = AFrame(tmp._dataverse, tmp._dataset, tmp.schema, new_query, connector=tmp._connector)
+
+            for col in columns:
+                tmp['diff_{}'.format(col)] = tmp[col]
+                tmp[col] = tmp[col_name.format(col)]
+                tmp = tmp.drop(col_name.format(col))
+            return tmp
+
+        new_query = self.rewrite(new_query, attribute_name=diff_cols, subquery=self.query)
+
+        return AFrame(self._dataverse, self._dataset, self.schema, new_query, connector=self._connector)
+
+    def tail(self, sample=5, query=False):
+        tail_query = self.config_queries['tail']
+        new_query = AFrame.rewrite(tail_query, num=str(sample), subquery=self.query)
+
+        if query:
+            return new_query
+
+        result = self.send_request(new_query)
+        if '_uuid' in result.columns:
+            result.drop('_uuid', axis=1, inplace=True)
+        return result
+
     def rolling(self, window=None, on=None):
-        if window is not None and not isinstance(window, Window):
-            raise ValueError('window object must be of type Window')
-        elif on is None and window is None:
-            raise ValueError('Must provide at least \'on\' or \'window\' value')
+        if isinstance(window, int):
+            window = Window(ord=on, rows=(-1*(window-1), 0))
+        elif isinstance(window, str):
+            window = Window(ord=on, rows=window)
+        elif window is None:
+            window = Window(ord=on)
+        if on is None:
+            raise ValueError('Must provide \'on\'')
         else:
             return RollingAFrame(self._dataverse, self._dataset, self._schema, self._connector, self._columns, on, self.query, window)
             # return AFrame(self._dataverse, self._dataset, self._columns, on, self.query, window)
@@ -1077,43 +1223,80 @@ class AFrame:
     def __truediv__(self, other):
         return self.div(other)
 
+    def __radd__(self, other):
+        return self.radd(other)
+
+    def __rmul__(self, other):
+        return self.rmul(other)
+
+    def __rsub__(self, other):
+        return self.rsub(other)
+
+    def __rdiv__(self, other):
+        return self.rdiv(other)
+
+    def __rmod__(self, other):
+        return self.rmod(other)
+
     def add(self, value):
-        if not isinstance(value, int) and not isinstance(value, float):
-            raise ValueError('parameter must be numerical')
         return self.arithmetic_op(value, 'add')
 
-    def sub(self, value):
-        if not isinstance(value, int) and not isinstance(value, float):
-            raise ValueError('parameter must be numerical')
-        return self.arithmetic_op(value, 'sub')
+    def sub(self, value, reverse=False):
+        return self.arithmetic_op(value, 'sub', reverse)
 
-    def div(self, value):
-        if not isinstance(value, int) and not isinstance(value, float):
-            raise ValueError('parameter must be numerical')
-        return self.arithmetic_op(value, 'div')
+    def div(self, value, reverse=False):
+        return self.arithmetic_op(value, 'div', reverse)
 
     def mul(self, value):
-        if not isinstance(value, int) and not isinstance(value, float):
-            raise ValueError('parameter must be numerical')
         return self.arithmetic_op(value, 'mul')
 
-    def mod(self, value):
+    def mod(self, value, reverse=False):
+        return self.arithmetic_op(value, 'mod', reverse)
+
+    def pow(self, value, reverse=False):
+        return self.arithmetic_op(value, 'pow', reverse)
+
+    def floordiv(self, value, reverse=False):
+        return self.div(int(value), reverse)
+
+    def truediv(self, value, reverse=False):
+        return self.div(value, reverse)
+
+    radd = add
+    rmul = mul
+
+    def rdiv(self, other):
+        return self.div(other, reverse=True)
+
+    def rsub(self, other):
+        return self.sub(other, reverse=True)
+
+    def rpow(self, other):
+        return self.pow(other, reverse=True)
+
+    def rmod(self, other):
+        return self.mod(other, reverse=True)
+
+    def rtruediv(self, value):
+        return self.div(value, True)
+
+    def rfloordiv(self, value):
+        return self.floordiv(value, True)
+
+    def arithmetic_op(self, value, op, reverse=False):
         if not isinstance(value, int) and not isinstance(value, float):
             raise ValueError('parameter must be numerical')
-        return self.arithmetic_op(value, 'mod')
 
-    def pow(self, value):
-        if not isinstance(value, int) and not isinstance(value, float):
-            raise ValueError('parameter must be numerical')
-        return self.arithmetic_op(value, 'pow')
-
-    def arithmetic_op(self, value, op):
         # new_query = 'SELECT VALUE t %s %s FROM (%s) t;' % (op, str(value), self.query)
         single_attr_format = self.config_queries['single_attribute']
         single_attr_format = self.rewrite(single_attr_format, attribute=self.schema)
 
         arithmetic_statement = self.config_queries[op]
-        condition = AFrame.rewrite(arithmetic_statement, left=single_attr_format, right=str(value))
+        if not reverse:
+            condition = AFrame.rewrite(arithmetic_statement, left=single_attr_format, right=str(value))
+        else:
+            condition = AFrame.rewrite(arithmetic_statement, left=str(value), right=single_attr_format)
+
         new_query = self.config_queries['q2']
         col_alias = self.config_queries['attribute_value']
         new_query = self.rewrite(new_query, attribute_value=col_alias)
@@ -1290,9 +1473,6 @@ class AFrame:
             attribute_str = attr if attribute_str == '' else self.rewrite(attribute_separator, left=attribute_str, right=attr)
 
         function = self.rewrite(function_format, function=func, attribute=attribute_str, argument=args_str)
-        # schema = func + '(' + self.schema + args_str + ')'
-        # schema = '%s(%s%s)' % (func, self.schema, args_str)
-        # new_query = 'SELECT VALUE %s(t%s) FROM (%s) t;' % (func, args_str, self.query)
         alias = re.sub(escape_chars, '', str(function))
         new_query = self.rewrite(project_query, alias=alias, attribute=function, subquery=self.query)
         return AFrame(self._dataverse, self._dataset, alias, new_query, is_view=self._is_view, connector=self._connector)
@@ -1427,7 +1607,7 @@ class NestedAFrame(AFrame):
 
 
 class RollingAFrame(AFrame):
-    def __init__(self,dataverse, dataset, schema, connector, columns, on, query, window=None):
+    def __init__(self, dataverse, dataset, schema, connector, columns, on, query, window=None):
         AFrame.__init__(self, dataverse, dataset, schema=schema, query=query, connector=connector)
         self._window = window
         self._columns = columns
@@ -1437,77 +1617,68 @@ class RollingAFrame(AFrame):
         self.on = on
         self.query = query
 
+    def build_window(self):
+        print()
+
     def get_window(self):
-        over = ''
-        if self._window is not None:
-            if self._window.part() is not None:
-                over += 'PARTITION BY t.%s ' % self._window._part
-            if self._window.ord() is not None:
-                over += 'ORDER BY t.%s ' % self._window._ord
-            if self._window.rows() is not None:
-                over += self._window._rows
-        else:
-            over += 'ORDER BY t.%s ' % self.on
-        return 'OVER(%s)' % over
+        return self._connector.get_window(self._window)
 
     def validate_agg_func(self, func, arg=None):
         over = self.get_window()
-        dataset = '(%s)' % self.query
+        query_format = self.config_queries['q20']
+        window_format = self.config_queries['window']
+        func_format = self.config_queries['window_'+func]
+        agg_window_format = self.config_queries['agg_window']
+
+        window = AFrame.rewrite(window_format, over=over)
+
         if self.on is not None:
             if arg is None:
-                col = '%s(t.%s) %s' % (func, self.on, over)
-                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
+                func = AFrame.rewrite(func_format, attribute=self.on)
             else:
-                col = '%s(t.%s) %s' % (func, arg, over)
-                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
-        elif self._window is not None:
-            if arg is None:
-                col = '%s(t.%s) %s' % (func, self._window.ord(), over)
-                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
-            else:
-                col = '%s(t.%s) %s' % (func, arg, over)
-                query = 'SELECT VALUE %s FROM %s t;' % (col, dataset)
-        else:
-            raise ValueError('Must provide either on or window')
-        return RollingAFrame(self._dataverse, self._dataset, col, self._connector, col, self.on, query, self._window)
+                func = AFrame.rewrite(func_format, attribute=arg)
+            agg_window = AFrame.rewrite(agg_window_format, func=func, window=window)
+            query = AFrame.rewrite(query_format, agg_window=agg_window, subquery=self.query)
 
-    def sum(self,col=None):
-        return self.validate_agg_func('SUM',col)
+        return RollingAFrame(self._dataverse, self._dataset, agg_window, self._connector, window, self.on, query, self._window)
+
+    def sum(self, col=None):
+        return self.validate_agg_func('sum',col)
 
     def count(self, col=None):
-        return self.validate_agg_func('COUNT', col)
+        return self.validate_agg_func('count', col)
 
     def avg(self, col=None):
-        return self.validate_agg_func('AVG', col)
+        return self.validate_agg_func('avg', col)
 
     mean = avg
 
     def min(self, col=None):
-        return self.validate_agg_func('MIN', col)
+        return self.validate_agg_func('min', col)
 
     def max(self, col=None):
-        return self.validate_agg_func('MAX', col)
+        return self.validate_agg_func('max', col)
 
     def stddev_samp(self, col=None):
-        return self.validate_agg_func('STDDEV_SAMP', col)
+        return self.validate_agg_func('stddev_samp', col)
 
     def stddev_pop(self, col=None):
-        return self.validate_agg_func('STDDEV_POP', col)
+        return self.validate_agg_func('stddev_pop', col)
 
     def var_samp(self, col=None):
-        return self.validate_agg_func('VAR_SAMP', col)
+        return self.validate_agg_func('var_samp', col)
 
     def var_pop(self, col=None):
-        return self.validate_agg_func('VAR_POP', col)
+        return self.validate_agg_func('var_pop', col)
 
     def skewness(self, col=None):
-        return self.validate_agg_func('SKEWNESS', col)
+        return self.validate_agg_func('skewness', col)
 
     def kurtosis(self, col=None):
-        return self.validate_agg_func('KURTOSIS', col)
+        return self.validate_agg_func('kurtosis', col)
 
     def row_number(self):
-        return self.validate_window_function('ROW_NUMBER')
+        return self.validate_window_function('row_number')
 
     def cume_dist(self):
         return self.validate_window_function('CUME_DIST')
@@ -1553,20 +1724,37 @@ class RollingAFrame(AFrame):
     def validate_window_function(self, func):
         dataset = '(%s)' % self.query
         over = self.get_window()
-        columns = '%s() %s' % (func, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return RollingAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        columns = '%s() OVER(%s)' % (func, over)
+        # query = 'SELECT VALUE %s FROM %s t' % (columns, dataset)
+        # return RollingAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+
+
+        query_format = self.config_queries['q20']
+        window_format = self.config_queries['window']
+        func_format = self.config_queries['window_' + func]
+        agg_window_format = self.config_queries['agg_window']
+
+        window = AFrame.rewrite(window_format, over=over)
+
+
+        func = AFrame.rewrite(func_format)
+        agg_window = AFrame.rewrite(agg_window_format, func=func, window=window)
+        query = AFrame.rewrite(query_format, agg_window=agg_window, subquery=self.query)
+
+        return RollingAFrame(self._dataverse, self._dataset, agg_window, self._connector, agg_window, self.on, query,
+                             self._window)
 
     def validate_window_function_argument(self, func, expr, ignore_null):
         if not isinstance(expr,str):
             raise ValueError('expr for first_value must be string')
         dataset = '(%s)' % self.query
         over = self.get_window()
-        columns = '%s(%s) %s' % (func, expr, over)
+        columns = '%s(%s) OVER(%s)' % (func, expr, over)
         if ignore_null:
             columns = '%s(%s) IGNORE NULLS %s' % (func, expr, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return RollingAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        query = 'SELECT VALUE %s FROM %s t' % (columns, dataset)
+        # return RollingAFrame(self._dataverse, self._dataset, agg_window, self._connector, window, self.on, query, self._window)
+        return RollingAFrame(self._dataverse, self._dataset, columns, self._connector, columns, self.on, query, self._window)
 
     def validate_window_function_two_arguments(self, func, offset, expr, ignore_null=False):
         if not isinstance(expr,str):
@@ -1580,5 +1768,7 @@ class RollingAFrame(AFrame):
         columns = '%s(%s, %d) %s' % (func, expr, offset, over)
         if ignore_null:
             columns = '%s(%s,%d) IGNORE NULLS %s' % (func, expr, offset, over)
-        query = 'SELECT VALUE %s FROM %s t;' % (columns, dataset)
-        return RollingAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        query = 'SELECT VALUE %s FROM %s t' % (columns, dataset)
+        # return RollingAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
+        return RollingAFrame(self._dataverse, self._dataset, columns, self._connector, columns, self.on, query,
+                             self._window)

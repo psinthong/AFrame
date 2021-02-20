@@ -50,4 +50,4 @@ class Window(object):
         elif end !=0:
             end_str = '%d FOLLOWING' % end
         rows = 'ROWS BETWEEN %s AND %s' %(start_str, end_str)
-        return Window(part=self.part(), ord=self.ord(), rows=rows)
+        return Window(part=self.part(), ord=self.ord(), rows=(start,end))
