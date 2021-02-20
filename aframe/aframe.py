@@ -830,7 +830,7 @@ class AFrame:
             res = pd.DataFrame(data, index=funcs, columns=cols)
             return res
 
-    def diff(self, subset=None, inplace=True, order_by=None):
+    def diff(self, subset=None, inplace=True):
         tmp = AFrame(self._dataverse, self._dataset, copy.deepcopy(self.schema), copy.deepcopy(self.query),
                      is_view=copy.deepcopy(self._is_view),
                      connector=self._connector)
