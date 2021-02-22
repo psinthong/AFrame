@@ -342,7 +342,7 @@ class AFrame:
         return self[self.notna(cols=cols)]
 
     def fillna(self, values, cols=None):
-        query = self.config_queries['q2']
+        query = self.config_queries['q9']
         col_alias = self.config_queries['attribute_value']
         attr_separator = self.config_queries['attribute_separator']
         fillna_field_format = self.config_queries['fillna']
@@ -786,20 +786,25 @@ class AFrame:
     def nsmallest(self, n, columns, query=False):
         return self.sort_values(columns, ascending=True).head(n, query)
 
-    def describe(self, cols=None, query=False):
+    def describe(self, query=False):
         funcs = ['avg', 'std', 'min', 'max', 'count']
         data = []
 
         new_query = self._config_queries['q14']
         attribute_format = self._config_queries['agg_value']
         attr_separator = self._config_queries['attribute_separator']
+        n = self.config_queries['sample_size']
+        samples = self.head(n)
 
-        if cols is None and self.schema:
+        if self.schema:
             if isinstance(self.schema,str):
                 separator = self.rewrite(attr_separator, left='', right='').strip()
-                cols = [col.strip() for col in self.schema.split(separator)]
+                selected_cols = [col.strip() for col in self.schema.split(separator)]
             elif isinstance(self.schema, list):
-                cols = self.schema
+                selected_cols = self.schema
+            cols = samples[selected_cols].select_dtypes([np.number]).columns.to_list()
+        else:
+            cols = samples.select_dtypes([np.number]).columns.to_list()
 
         all_func_str = ''
         for col in cols:
@@ -830,7 +835,15 @@ class AFrame:
             res = pd.DataFrame(data, index=funcs, columns=cols)
             return res
 
-    def diff(self, subset=None, inplace=True):
+    def create_str_attributes(self, columns, template):
+        attr_separator = self._config_queries['attribute_separator']
+        str_attributes = ''
+        for col in columns:
+            attr_format = self.rewrite(template, attribute=col)
+            str_attributes = attr_format if str_attributes == '' else self.rewrite(attr_separator, left=str_attributes, right=attr_format)
+        return str_attributes
+
+    def diff(self, subset=None, inplace=True, order_by=None):
         tmp = AFrame(self._dataverse, self._dataset, copy.deepcopy(self.schema), copy.deepcopy(self.query),
                      is_view=copy.deepcopy(self._is_view),
                      connector=self._connector)
@@ -843,9 +856,17 @@ class AFrame:
         col_name = 'org_{}'
 
         diff_cols = ''
+
         new_query = self._config_queries['diff']
         attribute_name = self._config_queries['attribute_name']
         attr_separator = self._config_queries['attribute_separator']
+
+        if 'window_order_by' in self._config_queries and order_by is None:
+            raise ValueError('order_by is required when using a window function')
+        else:
+            order_by_list = self._return_element_list(order_by)
+            order_by_format = self._config_queries['window_order_by']
+            order_by_formatted = self.create_str_attributes(order_by_list, order_by_format)
 
         for col in columns:
             tmp[col_name.format(col)] = tmp[col]
@@ -853,7 +874,7 @@ class AFrame:
             diff_cols = diff_col if diff_cols == '' else self.rewrite(attr_separator, left=diff_cols, right=diff_col)
 
         if not inplace:
-            new_query = self.rewrite(new_query, attribute_name=diff_cols, subquery=tmp.query)
+            new_query = self.rewrite(new_query, attribute_name=diff_cols, window_order_by=order_by_formatted, subquery=tmp.query)
             tmp = AFrame(tmp._dataverse, tmp._dataset, tmp.schema, new_query, connector=tmp._connector)
 
             for col in columns:
@@ -862,7 +883,7 @@ class AFrame:
                 tmp = tmp.drop(col_name.format(col))
             return tmp
 
-        new_query = self.rewrite(new_query, attribute_name=diff_cols, subquery=self.query)
+        new_query = self.rewrite(new_query, attribute_name=diff_cols, window_order_by=order_by_formatted, subquery=self.query)
 
         return AFrame(self._dataverse, self._dataset, self.schema, new_query, connector=self._connector)
 
@@ -1284,11 +1305,21 @@ class AFrame:
         return self.floordiv(value, True)
 
     def arithmetic_op(self, value, op, reverse=False):
-        if not isinstance(value, int) and not isinstance(value, float):
-            raise ValueError('parameter must be numerical')
-
-        # new_query = 'SELECT VALUE t %s %s FROM (%s) t;' % (op, str(value), self.query)
+        original_query = copy.deepcopy(self.query)
         single_attr_format = self.config_queries['single_attribute']
+        attr_sep_format = self.config_queries['attribute_separator']
+        attr_project_format = self.config_queries['attribute_project']
+
+        if not isinstance(value, int) and not isinstance(value, float):
+            if isinstance(value, AFrame):
+                original_proj_attr = self.rewrite(attr_project_format, attribute=self.schema)
+                added_attr_formatted = self.rewrite(attr_project_format, attribute=value.schema)
+                added_attribute = self.rewrite(attr_sep_format, left=original_proj_attr, right=added_attr_formatted)
+                self.query = self.query.replace(original_proj_attr, added_attribute, 1)
+                value = self.rewrite(single_attr_format, attribute=value.schema)
+            else:
+                raise ValueError('parameter must be numerical')
+
         single_attr_format = self.rewrite(single_attr_format, attribute=self.schema)
 
         arithmetic_statement = self.config_queries[op]
@@ -1304,7 +1335,8 @@ class AFrame:
         escape_chars = self.config_queries['escape']
         alias = re.sub(escape_chars, '', str(condition))
 
-        new_query = self.rewrite(new_query, subquery=self.query, attribute=condition, alias=alias)
+        new_query = self.rewrite(new_query, subquery=copy.deepcopy(self.query), attribute=condition, alias=alias)
+        self.query = original_query
         return AFrame(self._dataverse, self._dataset, condition, new_query, is_view=self._is_view, connector=self._connector)
 
     def max(self, query=False):
