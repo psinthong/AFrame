@@ -196,6 +196,35 @@ class SQLConnector(Connector):
         results = result_obj.fetchall()
         return pd.DataFrame(results, columns=result_obj.keys())
 
+    def get_window(self, window):
+        over = ''
+        if window is not None:
+            if window.part() is not None:
+                over += 'PARTITION BY t.%s ' % window._part
+            if window.ord() is not None:
+                over += 'ORDER BY t.%s ' % window._ord
+            if window.rows() is not None:
+                frame = window.rows()
+                if isinstance(frame, tuple):
+                    start = frame[0]
+                    end = frame[1]
+                    start_str = ''
+                    end_str = ''
+                    if start == 0:
+                        start_str = 'CURRENT ROW'
+                    elif start != 0:
+                        start_str = '%d PRECEDING' % (start * -1)
+                    if end == 0:
+                        end_str = 'CURRENT ROW'
+                    elif end != 0:
+                        end_str = '%d FOLLOWING' % end
+                    rows = 'ROWS BETWEEN %s AND %s' % (start_str, end_str)
+                    over += rows
+        # else:
+        #     over += 'ORDER BY t.%s ' % on
+        # return 'OVER(%s)' % over
+        return over
+
 
 class MongoConnector(Connector):
 

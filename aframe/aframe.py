@@ -899,7 +899,7 @@ class AFrame:
             result.drop('_uuid', axis=1, inplace=True)
         return result
 
-    def rolling(self, window=None, on=None):
+    def rolling(self, window=None, on=None, appended=False):
         if isinstance(window, int):
             window = Window(ord=on, rows=(-1*(window-1), 0))
         elif isinstance(window, str):
@@ -1754,12 +1754,7 @@ class RollingAFrame(AFrame):
         return result
 
     def validate_window_function(self, func):
-        dataset = '(%s)' % self.query
         over = self.get_window()
-        columns = '%s() OVER(%s)' % (func, over)
-        # query = 'SELECT VALUE %s FROM %s t' % (columns, dataset)
-        # return RollingAFrame(self._dataverse, self._dataset, columns, self.on, query, self._window)
-
 
         query_format = self.config_queries['q20']
         window_format = self.config_queries['window']
@@ -1768,8 +1763,7 @@ class RollingAFrame(AFrame):
 
         window = AFrame.rewrite(window_format, over=over)
 
-
-        func = AFrame.rewrite(func_format)
+        func = func_format
         agg_window = AFrame.rewrite(agg_window_format, func=func, window=window)
         query = AFrame.rewrite(query_format, agg_window=agg_window, subquery=self.query)
 
@@ -1779,14 +1773,23 @@ class RollingAFrame(AFrame):
     def validate_window_function_argument(self, func, expr, ignore_null):
         if not isinstance(expr,str):
             raise ValueError('expr for first_value must be string')
-        dataset = '(%s)' % self.query
+
         over = self.get_window()
-        columns = '%s(%s) OVER(%s)' % (func, expr, over)
+
         if ignore_null:
             columns = '%s(%s) IGNORE NULLS %s' % (func, expr, over)
-        query = 'SELECT VALUE %s FROM %s t' % (columns, dataset)
-        # return RollingAFrame(self._dataverse, self._dataset, agg_window, self._connector, window, self.on, query, self._window)
-        return RollingAFrame(self._dataverse, self._dataset, columns, self._connector, columns, self.on, query, self._window)
+
+        query_format = self.config_queries['q20']
+        window_format = self.config_queries['window']
+        func_format = self.config_queries['window_' + func.lower()]
+        agg_window_format = self.config_queries['agg_window']
+
+        window = AFrame.rewrite(window_format, over=over)
+        func = AFrame.rewrite(func_format, expr=expr)
+        agg_window = AFrame.rewrite(agg_window_format, func=func, window=window)
+        query = AFrame.rewrite(query_format, agg_window=agg_window, subquery=self.query)
+
+        return RollingAFrame(self._dataverse, self._dataset, agg_window, self._connector, agg_window, self.on, query, self._window)
 
     def validate_window_function_two_arguments(self, func, offset, expr, ignore_null=False):
         if not isinstance(expr,str):
