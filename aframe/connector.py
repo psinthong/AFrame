@@ -171,9 +171,9 @@ class AsterixConnector(Connector):
                         end_str = '%d FOLLOWING' % end
                     rows = 'ROWS BETWEEN %s AND %s' % (start_str, end_str)
                     over += rows
-        # else:
-        #     over += 'ORDER BY t.%s ' % on
-        # return 'OVER(%s)' % over
+                elif isinstance(frame, str):
+                    rows = "RANGE BETWEEN duration('P%s') PRECEDING AND CURRENT ROW" % (frame.upper())
+                    over += rows
         return over
 
 
@@ -220,9 +220,9 @@ class SQLConnector(Connector):
                         end_str = '%d FOLLOWING' % end
                     rows = 'ROWS BETWEEN %s AND %s' % (start_str, end_str)
                     over += rows
-        # else:
-        #     over += 'ORDER BY t.%s ' % on
-        # return 'OVER(%s)' % over
+                elif isinstance(frame, str):
+                    rows = "RANGE BETWEEN '%s' PRECEDING AND CURRENT ROW" % (frame.upper())
+                    over += rows
         return over
 
 

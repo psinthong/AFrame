@@ -899,7 +899,7 @@ class AFrame:
             result.drop('_uuid', axis=1, inplace=True)
         return result
 
-    def rolling(self, window=None, on=None, appended=False):
+    def rolling(self, window=None, on=None):
         if isinstance(window, int):
             window = Window(ord=on, rows=(-1*(window-1), 0))
         elif isinstance(window, str):
@@ -911,6 +911,10 @@ class AFrame:
         else:
             return RollingAFrame(self._dataverse, self._dataset, self._schema, self._connector, self._columns, on, self.query, window)
             # return AFrame(self._dataverse, self._dataset, self._columns, on, self.query, window)
+
+    def expanding(self, on=None):
+        total_count = len(self)
+        return self.rolling(total_count, on=on)
 
     def get_bin_size(self, attr, bins):
         if isinstance(attr, AFrame):
@@ -1049,7 +1053,8 @@ class AFrame:
                 elif isinstance(tmp_af.schema, str):
                     added_schema = tmp_af.schema.split(',')[-1]
                 added_cols.append(added_schema)
-            tmp_af = tmp_af.drop(encoded_col)
+            if 'q11' in af.config_queries:
+                tmp_af = tmp_af.drop(encoded_col)
         else:
             raise ValueError("must be an AFrame object")
 
