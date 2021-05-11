@@ -29,8 +29,8 @@ class AFrame:
         # initialize
         self._config_queries = connector.get_config_queries()
 
-        if not is_view and isinstance(connector, AsterixConnector):
-            self.get_dataset(dataverse=dataverse,dataset=dataset)
+        # if not is_view and isinstance(connector, AsterixConnector):
+        #     self.get_dataset(dataverse=dataverse,dataset=dataset)
 
         if query is not None and query != '':
             self.query = query
@@ -1551,6 +1551,13 @@ class AFrame:
         new_view._connector.get_view(dataverse=self._dataverse, dataset=name)
         return new_view
 
+    def to_transformation(self, name, namespace=None, query=False):
+        if query:
+            dataverse = namespace if namespace else self._dataverse
+            return self._connector.to_transformation(self.query, dataverse, self._dataset, name, True)
+        else:
+            self._connector.to_transformation(self.query, self._dataverse, self._dataset, name)
+
     def persist(self, name, mode='collection', namespace=None, query=False):
 
         if str.lower(mode) == 'collection':
@@ -1558,13 +1565,23 @@ class AFrame:
         elif str.lower(mode) == 'view':
             return self.to_view(name, query)
         elif str.lower(mode) == 'transformation':
-            if query:
-                dataverse = namespace if namespace else self._dataverse
-                return self._connector.to_transformation(self.query, dataverse, self._dataset, name, True)
-            else:
-                self._connector.to_transformation(self.query, self._dataverse, self._dataset, name)
+            self.to_transformation(name, namespace, query)
         else:
             raise ValueError('The mode indicated is not available.')
+
+    @staticmethod
+    def read_json(connector, filepath, name=None, namespace=None, orient='records', lines=True, query=False):
+        if query:
+            return connector.read_json(filepath, name, namespace, orient, lines, query)
+        initial_query = connector.read_json(filepath, name, namespace, orient, lines, query)
+        return AFrame(namespace, name, query=initial_query, connector=connector)
+
+    @staticmethod
+    def read_csv(connector, filepath, sep=',', name=None, namespace=None, header=0, query=False):
+        if query:
+            return connector.read_csv(filepath, sep, name, namespace, header, query)
+        initial_query = connector.read_csv(filepath, sep, name, namespace, header, query)
+        return AFrame(namespace, name, query=initial_query, connector=connector)
 
     def drop_transformation(self, name, namespace=None):
         dataverse = namespace if namespace else self._dataverse

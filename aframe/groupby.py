@@ -110,8 +110,8 @@ class AFrameGroupBy:
         grp_val_str = af.AFrame.concat_statements(grp_statement, attr_separator, self._by)
 
         agg_query = af.AFrame.rewrite(agg_query, subquery=self._base_query, grp_by_attribute=grp_attributes, agg_value=agg_val_str, grp_value=grp_val_str)
-        return_all = self._config_queries['return_all']
-        agg_query = af.AFrame.rewrite(return_all, subquery=agg_query)
+        # return_all = self._config_queries['return_all']
+        # agg_query = af.AFrame.rewrite(return_all, subquery=agg_query)
 
         if query:
             return agg_query
