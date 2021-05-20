@@ -169,6 +169,10 @@ class AFrame:
         self._info['count'] = result
         return result
 
+    @property
+    def size(self):
+        return self.__len__()
+
     def get_count(self):
         query = self.config_queries['q4']
         query = AFrame.rewrite(query, subquery=self.query)
@@ -233,11 +237,7 @@ class AFrame:
             result.drop('_uuid', axis=1, inplace=True)
         return result
 
-    def collect(self):
-        results = self.send_request(self.query)
-        if '_uuid' in results.columns:
-            results.drop('_uuid', axis=1, inplace=True)
-        return results
+    collect = toPandas
 
     def collect_query(self):
         if self._dataset is None:
@@ -272,6 +272,54 @@ class AFrame:
         result = drop_af.rename({new_column: column})
 
         return result
+
+    def rank(self, axis=0, method='average', numeric_only=None, na_option='top', ascending=True, pct=False, query=False):
+        methods = {'average':'avg', 'min':'rank', 'max':'last_value', 'dense':'dense_rank', 'first':'row_number'}
+
+        if na_option != 'top':
+            raise NotImplemented('Only "top" is supported')
+
+        query_format = self.config_queries['q2']
+        agg_window_format = self.config_queries['agg_window']
+        over_format = self.config_queries['window']
+        row_number = self.config_queries['window_row_number']
+        attribute_format = self.config_queries['attribute_value']
+        func_format = self.config_queries['window_' + methods[method]]
+        attribute_sep = self.config_queries['attribute_separator']
+
+        attributes = []
+        columns = self.get_selected_attributes()
+        for column in columns:
+            row_number_window = Window(ord=column)
+            row_number_over = self.rewrite(over_format, over=self._connector.get_window(row_number_window))
+            row_number_format = self.rewrite(agg_window_format, func=row_number, window=row_number_over)
+
+            if method in ['dense', 'min', 'first']:
+                query_window = Window(ord=column)
+            else:
+                query_window = Window(part=column, ord=column)
+            func_format = self.rewrite(func_format, attribute=row_number_format)
+            query_window_over = self.rewrite(over_format, over=self._connector.get_window(query_window))
+            query_window_format = self.rewrite(agg_window_format, func=func_format,
+                                             window=query_window_over)
+            attribute_format = self.rewrite(attribute_format, attribute=query_window_format, alias='{}_rank'.format(column))
+            attributes.append(attribute_format)
+        new_query = self.rewrite(query_format, attribute_value=attribute_sep.join(attributes), subquery=self.query)
+
+        if query:
+            return new_query
+        return AFrame(dataverse=self._dataverse, dataset=self._dataset, schema=attribute_format, query=new_query,
+                      is_view=self._is_view, connector=self._connector)
+
+    def get_selected_attributes(self):
+        if self.schema:
+            if isinstance(self.schema, list):
+                fields = self.schema
+            elif isinstance(self.schema, str):
+                fields = [self.schema]
+            else:
+                raise ValueError('Must provide either field(s) to check or pre-select the field(s)')
+        return fields
 
     def withColumn(self, name, col):
         if not isinstance(name, str):
@@ -1570,17 +1618,17 @@ class AFrame:
             raise ValueError('The mode indicated is not available.')
 
     @staticmethod
-    def read_json(connector, filepath, name=None, namespace=None, orient='records', lines=True, query=False):
+    def read_json(connector, filepath, name=None, namespace=None, dtype=None, orient='records', lines=True, query=False):
         if query:
-            return connector.read_json(filepath, name, namespace, orient, lines, query)
-        initial_query = connector.read_json(filepath, name, namespace, orient, lines, query)
+            return connector.read_json(filepath, name, namespace, dtype, orient, lines, query)
+        initial_query = connector.read_json(filepath, name, namespace, dtype, orient, lines, query)
         return AFrame(namespace, name, query=initial_query, connector=connector)
 
     @staticmethod
-    def read_csv(connector, filepath, sep=',', name=None, namespace=None, header=0, query=False):
+    def read_csv(connector, filepath, sep=',', dtype=None, name=None, namespace=None, header=0, query=False):
         if query:
-            return connector.read_csv(filepath, sep, name, namespace, header, query)
-        initial_query = connector.read_csv(filepath, sep, name, namespace, header, query)
+            return connector.read_csv(filepath, sep, dtype, name, namespace, header, query)
+        initial_query = connector.read_csv(filepath, sep, dtype, name, namespace, header, query)
         return AFrame(namespace, name, query=initial_query, connector=connector)
 
     def drop_transformation(self, name, namespace=None):

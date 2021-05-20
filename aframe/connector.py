@@ -92,7 +92,7 @@ class AsterixConnector(Connector):
         import urllib.parse
         import urllib.request
         import urllib.error
-        host = self.server_address+'/query/service'
+        host = self.server_address + '/query/service'
         data = dict()
         data['statement'] = query
         data = urllib.parse.urlencode(data).encode('utf-8')
@@ -178,7 +178,7 @@ class AsterixConnector(Connector):
             pass
         return 'SELECT VALUE t FROM {}.{}'.format(dataverse, dataset)
 
-    def read_json(self, path, name, namespace, orient='records', lines=True, query=False):
+    def read_json(self, path, name, namespace, dtype=None, orient='records', lines=True, query=False):
         if orient != 'records' and not lines:
             raise ValueError('Only record oriented is supported.')
         if name is None or namespace is None:
@@ -188,6 +188,31 @@ class AsterixConnector(Connector):
             .replace('$address', self._host)\
             .replace('$path', path) \
             .replace('$name', name)
+        if query:
+            return new_query
+        self.submit(new_query)
+        initial_query = self.get_config_queries()['q1']
+        initial_query = initial_query.replace('$namespace', namespace).replace('$collection', name)
+        return initial_query
+
+    def read_csv(self, path, sep, dtype, name, namespace, header=0, query=False):
+        if dtype is None:
+            raise ValueError('Must provide column data type mapping.')
+        if name is None or namespace is None:
+            raise ValueError('Require both name and namespace')
+        attribte_type_template = '{} {}, '
+        schema = ''
+        for column in dtype.keys():
+            schema += attribte_type_template.format(column, dtype[column])
+
+        new_query = self.get_config_queries()['read_csv']
+        new_query = new_query.replace('$namespace', namespace) \
+            .replace('$address', self._host) \
+            .replace('$path', path) \
+            .replace('$name', name) \
+            .replace('$delimiter', sep) \
+            .replace('$types', schema[:-2])
+
         if query:
             return new_query
         self.submit(new_query)
@@ -293,20 +318,6 @@ class SQLConnector(Connector):
         self.submit(new_query)
         return SQLConnector(server_address=self.server_address, config_file_path=self._config_file_path)
 
-    def to_transformation(self, subquery, namespace, collection, name, query=False):
-        template = 'SELECT * FROM $collection'
-        template = template.replace('$collection', collection)
-        new_q = 'SELECT $1.*'
-        subquery = subquery.replace(template, new_q)
-        new_query = 'CREATE FUNCTION $name($collection) RETURNS RECORD\n'\
-                    'AS $$ SELECT * FROM ($subquery) t $$\n'\
-                    'LANGUAGE SQL;'
-        new_query = new_query.replace('$subquery', subquery).replace('$name', name).replace('$collection', collection)
-        if query:
-            return new_query
-        self.submit(new_query)
-        return SQLConnector(server_address=self.server_address, config_file_path=self._config_file_path)
-
     def drop_collection(self, namespace, collection):
         drop_query = 'DROP TABLE {};'.format(collection)
         return self.submit(drop_query)
@@ -327,6 +338,53 @@ class SQLConnector(Connector):
         else:
             raise ValueError('Cannot find {}'.format(dataset))
 
+    def read_csv(self, path, sep, dtype, name, namespace, header=0, query=False):
+        if dtype is None:
+            raise ValueError('Must provide column data type mapping.')
+        if name is None or namespace is None:
+            raise ValueError('Require both name and namespace')
+        attribte_type_template = '{} {}, '
+        schema = ''
+        for column in dtype.keys():
+            types = {'string': 'text', 'int': 'int', 'int64':'int', 'int32': 'int', 'float': 'float'}
+            schema += attribte_type_template.format(column, types[dtype[column]])
+
+        new_query = self.get_config_queries()['read_csv']
+        new_query = new_query.replace('$path', path) \
+            .replace('$name', name) \
+            .replace('$delimiter', sep) \
+            .replace('$types', schema[:-2])
+
+        if query:
+            return new_query
+        self.submit(new_query)
+        initial_query = self.get_config_queries()['q1']
+        initial_query = initial_query.replace('$collection', name)
+        return initial_query
+
+    def read_json(self, path, name, namespace, dtype=None, orient='records', lines=True, query=False):
+        if dtype is None:
+            raise ValueError('Must provide column data type mapping.')
+        if name is None or namespace is None:
+            raise ValueError('Require both name and namespace')
+        attribte_type_template = '{} {}, '
+        schema = ''
+        for column in dtype.keys():
+            types = {'string': 'text', 'int': 'int', 'int64':'int', 'int32': 'int', 'float': 'float'}
+            schema += attribte_type_template.format(column, types[dtype[column]])
+
+        new_query = self.get_config_queries()['read_json']
+        new_query = new_query.replace('$path', path) \
+            .replace('$name', name) \
+            .replace('$types', schema[:-2])
+
+        if query:
+            return new_query
+        self.submit(new_query)
+        initial_query = self.get_config_queries()['q1']
+        initial_query = initial_query.replace('$collection', name)
+        return initial_query
+
 
 class MongoConnector(Connector):
 
@@ -343,7 +401,7 @@ class MongoConnector(Connector):
         return MongoClient(db_str)
 
     def send_request(self, query):
-        # drop_id = ', { "$project": { "_id": 0 } }'
+        # drop_id = ',\r\n{ "$project": { "_id": 0 } }'
         # if query[0] == ',':
         #     query = query[1:]
         # query += drop_id
@@ -387,7 +445,7 @@ class MongoConnector(Connector):
 
     drop_view = drop_collection
 
-    def read_json(self, path, name, namespace, orient='records', lines=True, query=False):
+    def read_json(self, path, name, namespace, dtype=None, orient='records', lines=True, query=False):
         if orient != 'records' and not lines:
             raise ValueError('Only record oriented is supported.')
         if name is None:
@@ -459,7 +517,7 @@ class CypherConnector(Connector):
         query = query.replace('$collection', collection)
         self._db.run(query)
 
-    def read_json(self, path, name, namespace, orient='records', lines=True, query=False):
+    def read_json(self, path, name, namespace, dtype=None, orient='records', lines=True, query=False):
         if orient != 'records' and not lines:
             raise ValueError('Only record oriented is supported.')
 
@@ -467,7 +525,7 @@ class CypherConnector(Connector):
         new_query = new_query.replace('$path', path)
         return new_query
 
-    def read_csv(self, path, sep, name, namespace, header=0, query=False):
+    def read_csv(self, path, sep, dtype, name, namespace, header=0, query=False):
         if header != 0:
             raise ValueError('Must provide column names.')
 
