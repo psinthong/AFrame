@@ -1,0 +1,11 @@
+{"id":1,"ename":"SMITH","job":"CLERK","mgr_id":8,"hiredate":"17-Dec-2010","sal":800,"comm":20,"deptno":10}
+{"id":2,"ename":"ALLEN","job":"SALESMAN","mgr_id":6,"hiredate":"20-Feb-2011","sal":1600,"comm":300,"deptno":30}
+{"id":3,"ename":"WARD","job":"SALESMAN","mgr_id":6,"hiredate":"22-Feb-2011","sal":1250,"comm":500,"deptno":30}
+{"id":4,"ename":"JONES","job":"MANAGER","mgr_id":9,"hiredate":"2-Apr-2011","sal":2975,"comm":0,"deptno":20}
+{"id":5,"ename":"MARTIN","job":"SALESMAN","mgr_id":6,"hiredate":"28-Sep-2011","sal":1250,"comm":1400,"deptno":30}
+{"id":6,"ename":"BLAKE","job":"MANAGER","mgr_id":9,"hiredate":"1-May-2011","sal":2850,"comm":0,"deptno":30}
+{"id":7,"ename":"CLARK","job":"MANAGER","mgr_id":9,"hiredate":"9-Jun-2011","sal":2450,"comm":0,"deptno":10}
+{"id":8,"ename":"SCOTT","job":"ANALYST","mgr_id":4,"hiredate":"19-Apr-2017","sal":3000,"comm":0,"deptno":20}
+{"id":9,"ename":"KING","job":"PRESIDENT","mgr_id":null,"hiredate":"17-Nov-2011","sal":5000,"comm":0,"deptno":10}
+{"id":10,"ename":"TURNER","job":"SALESMAN","mgr_id":6,"hiredate":"8-Sep-2011","sal":1500,"comm":0,"deptno":30}
+{"id":11,"ename":"ADAMS","job":"CLERK","mgr_id":8,"hiredate":"23-May-2017","sal":1100,"comm":0,"deptno":20}

@@ -2,13 +2,3 @@
 __pycache__/
 .DS_Store
 .ipynb_checkpoints/
-test.py
-testSpark.py
-*_perf.py
-*_perf_2.py
-prep.py
-*.ipynb
-/pipelines
-/data
-/model
-test_*.py
